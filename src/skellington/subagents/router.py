@@ -11,6 +11,10 @@ from pydantic import BaseModel
 
 from skellington.core.subagent import BaseSubAgent
 from skellington.core.types import AgentName
+from skellington.utils.json_utils import extract_json
+
+# All valid agent names the router may return
+_VALID_AGENTS = {a.value for a in AgentName}
 
 
 class RoutingDecision(BaseModel):
@@ -37,10 +41,13 @@ Agent capabilities:
 - sally: code generation, file creation, project scaffolding, refactoring
 - oogie: web research, documentation, library comparison, finding information
 - zero: file exploration, reading existing code, dependency analysis
-- lock/shock/barrel: code review, testing, security analysis, validation
+- lock: logic and correctness review
+- shock: style, maintainability, and test coverage review
+- barrel: security and robustness review
 - mayor: reporting, summarizing results, formatting output
 
-Respond with JSON: {"step": str, "assigned_agent": str, "reasoning": str}"""
+Respond with ONLY a JSON object — no explanation, no markdown prose, no code fences:
+{"step": "...", "assigned_agent": "agent_name", "reasoning": "..."}"""
 
     async def run(self, step: str) -> RoutingDecision:
         """Route a step to the best agent."""
@@ -48,7 +55,25 @@ Respond with JSON: {"step": str, "assigned_agent": str, "reasoning": str}"""
             f"Route this task step to the best agent:\n\n{step}",
             temperature=0.1,
         )
-        import json
-
-        data = json.loads(response)
-        return RoutingDecision(**data)
+        try:
+            data = extract_json(response)
+            decision = RoutingDecision(**data)
+            # Validate the agent name is one we recognise; fall back to mayor (reporter) if not
+            if decision.assigned_agent not in _VALID_AGENTS:
+                self.log.warning(
+                    "router returned unknown agent, falling back to mayor",
+                    returned=decision.assigned_agent,
+                )
+                decision = RoutingDecision(
+                    step=step,
+                    assigned_agent="mayor",
+                    reasoning="fallback: unrecognised agent name",
+                )
+            return decision
+        except (ValueError, KeyError, TypeError) as exc:
+            self.log.warning("router JSON parse failed, defaulting to mayor", error=str(exc))
+            return RoutingDecision(
+                step=step,
+                assigned_agent="mayor",
+                reasoning=f"fallback: parse error ({exc})",
+            )

@@ -90,13 +90,15 @@ class Orchestrator:
         state.add_task(root_task)
         state.active_agent = AgentName.JACK
 
-        # Get Jack
+        # Get Jack and inject self so he can delegate back through us
         jack = AgentRegistry.get(AgentName.JACK)
         if jack is None:
             self.log.error("Jack not registered")
             root_task.status = TaskStatus.FAILED
             root_task.error = "Orchestrator: Jack (the orchestrator agent) is not registered"
             return state
+
+        jack._orchestrator = self  # type: ignore[attr-defined]
 
         # Run Jack
         try:

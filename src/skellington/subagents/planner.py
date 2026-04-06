@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from skellington.core.subagent import BaseSubAgent
 from skellington.core.types import AgentName
+from skellington.utils.json_utils import extract_json
 
 
 class Plan(BaseModel):
@@ -37,7 +38,8 @@ a clear, ordered list of subtasks. Each step should be atomic and assignable to 
 Available agents: jack (orchestrate), sally (build/code), oogie (research), zero (navigate),
 lock/shock/barrel (validate), mayor (report).
 
-Respond with JSON: {"goal": str, "steps": [str], "estimated_agents": [str]}"""
+Respond with ONLY a JSON object — no explanation, no markdown prose, no code fences:
+{"goal": "...", "steps": ["step 1", "step 2", ...], "estimated_agents": ["agent1", ...]}"""
 
     async def run(self, request: str) -> Plan:
         """Decompose a request into a plan."""
@@ -45,7 +47,14 @@ Respond with JSON: {"goal": str, "steps": [str], "estimated_agents": [str]}"""
             f"Decompose this request into an ordered plan:\n\n{request}",
             temperature=0.2,
         )
-        import json
-
-        data = json.loads(response)
-        return Plan(**data)
+        try:
+            data = extract_json(response)
+            return Plan(**data)
+        except (ValueError, KeyError, TypeError) as exc:
+            self.log.warning("planner JSON parse failed, using fallback plan", error=str(exc))
+            # Graceful degradation: treat the whole request as one step for Jack to handle directly
+            return Plan(
+                goal=request,
+                steps=[request],
+                estimated_agents=["jack"],
+            )

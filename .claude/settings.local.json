@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm update:*)",
+      "Bash(claude:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest tests/test_core/test_json_utils.py tests/test_agents/test_jack_phase2.py tests/test_core/test_types.py tests/test_core/test_config.py -v)"
+    ]
+  }
+}

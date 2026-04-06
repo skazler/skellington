@@ -57,21 +57,25 @@ Each main agent orchestrates domain-specific subagents:
 User Request
      │
      ▼
-┌─────────────────────┐
-│   Jack Skellington  │  ← Orchestrator
-│  (Orchestrator)     │    Routes, plans, manages state
-└──────────┬──────────┘
-           │ delegates to
-    ┌──────┴──────┬──────────┬──────────┬──────────┐
-    ▼             ▼          ▼          ▼          ▼
-  Sally         Oogie      Zero    Lock/Shock/   Mayor
- (Builder)   (Researcher) (Nav)    Barrel (Val) (Report)
-    │             │          │          │          │
-    ▼             ▼          ▼          ▼          ▼
- subagents    subagents   subagents  subagents  subagents
-    │             │          │          │
-    ▼             ▼          ▼          ▼
- MCP Tools    MCP Tools   MCP Tools  MCP Tools
+Orchestrator.run()
+  └─ jack._orchestrator = self   ← injects delegation path
+     │
+     ▼
+Jack.run()                        ✅ live
+  ├─ PlannerSubagent.run()        ✅ live — extract_json() handles LLM formatting quirks
+  │    └─ Plan(steps=[...])
+  │
+  ├─ RouterSubagent.run() × N     ✅ live — parallel via asyncio.gather
+  │    └─ RoutingDecision(assigned_agent="sally"|"oogie"|...)
+  │
+  ├─ Orchestrator.delegate(step, agent) × N
+  │    ├─ Sally   🔜 Phase 4      (currently: direct LLM stub)
+  │    ├─ Oogie   🔜 Phase 5      (currently: direct LLM stub)
+  │    ├─ Zero    🔜 Phase 3      (currently: direct LLM stub)
+  │    └─ Mayor   🔜 Phase 8      (currently: direct LLM stub)
+  │
+  └─ Jack._synthesize()           ✅ live — weaves all results into final answer
+       └─ AgentResponse
 ```
 
 ### MCP Servers Built in This Project
@@ -102,72 +106,82 @@ skellington/
 │       ├── __init__.py
 │       ├── main.py                    # CLI entry point
 │       │
-│       ├── core/                      # Foundation layer
-│       │   ├── agent.py               # Base Agent class
-│       │   ├── subagent.py            # Base SubAgent class
-│       │   ├── orchestrator.py        # Agent routing & workflow engine
-│       │   ├── llm.py                 # Multi-provider LLM abstraction
-│       │   ├── memory.py              # SQLite-backed agent memory
-│       │   ├── config.py              # Settings & configuration
-│       │   └── types.py               # Shared types/models (Pydantic)
+│       ├── core/                      # Foundation layer  ✅ implemented
+│       │   ├── agent.py               # Base Agent class + tool-use loop
+│       │   ├── subagent.py            # Base SubAgent class + run_subagents_parallel()
+│       │   ├── orchestrator.py        # AgentRegistry + Orchestrator.delegate()
+│       │   ├── llm.py                 # AnthropicClient, OpenAIClient, LLMClientFactory
+│       │   ├── memory.py              # SQLite-backed agent memory (SQLAlchemy async)
+│       │   ├── config.py              # Pydantic Settings + per-agent model overrides
+│       │   └── types.py               # All shared Pydantic models
 │       │
 │       ├── agents/                    # Main character agents
-│       │   ├── jack.py                # Jack Skellington — Orchestrator
-│       │   ├── sally.py               # Sally Claus — Builder
-│       │   ├── oogie.py               # Oogie Boogie — Researcher
-│       │   ├── zero.py                # Zero — Navigator
-│       │   ├── validators.py          # Lock/Shock/Barrel — Validators
-│       │   └── mayor.py               # The Mayor — Reporter
+│       │   ├── jack.py                # ✅ Orchestrator — plan → route → delegate → synthesize
+│       │   ├── sally.py               # 🔜 Builder (Phase 4)
+│       │   ├── oogie.py               # 🔜 Researcher (Phase 5)
+│       │   ├── zero.py                # 🔜 Navigator (Phase 3)
+│       │   ├── validators.py          # 🔜 Lock/Shock/Barrel (Phase 6)
+│       │   └── mayor.py               # 🔜 Reporter (Phase 8)
 │       │
 │       ├── subagents/                 # Specialized subagents
-│       │   ├── planner.py
-│       │   ├── router.py
-│       │   ├── codegen.py
-│       │   ├── refactor.py
-│       │   ├── scaffold.py
-│       │   ├── search.py
-│       │   ├── summary.py
-│       │   ├── compare.py
-│       │   ├── file_explorer.py
-│       │   ├── dependency.py
-│       │   ├── context.py
-│       │   ├── lint.py
-│       │   ├── test_runner.py
-│       │   ├── security.py
-│       │   ├── formatter.py
-│       │   ├── diff.py
-│       │   └── status.py
+│       │   ├── planner.py             # ✅ Plan decomposition with JSON fallback
+│       │   ├── router.py              # ✅ Step routing with agent validation + fallback
+│       │   ├── codegen.py             # 🔜 (Phase 4)
+│       │   ├── refactor.py            # 🔜 (Phase 4)
+│       │   ├── scaffold.py            # 🔜 (Phase 4)
+│       │   ├── search.py              # 🔜 (Phase 5)
+│       │   ├── summary.py             # 🔜 (Phase 5)
+│       │   ├── compare.py             # 🔜 (Phase 5)
+│       │   ├── file_explorer.py       # 🔜 (Phase 3)
+│       │   ├── dependency.py          # 🔜 (Phase 3)
+│       │   ├── context.py             # 🔜 (Phase 3)
+│       │   ├── lint.py                # 🔜 (Phase 6)
+│       │   ├── test_runner.py         # 🔜 (Phase 6)
+│       │   ├── security.py            # 🔜 (Phase 6)
+│       │   ├── formatter.py           # 🔜 (Phase 8)
+│       │   ├── diff.py                # 🔜 (Phase 8)
+│       │   └── status.py              # 🔜 (Phase 8)
 │       │
-│       ├── mcp_servers/               # MCP server implementations
-│       │   ├── filesystem/
-│       │   ├── websearch/
-│       │   ├── git_server/
-│       │   ├── code_exec/
-│       │   ├── database/
-│       │   └── docs/
+│       ├── mcp_servers/               # MCP server implementations  ✅ all scaffolded
+│       │   ├── filesystem/            # ✅ read/write/list/search
+│       │   ├── websearch/             # ✅ Brave + Tavily with fallback
+│       │   ├── git_server/            # ✅ status/log/diff
+│       │   ├── code_exec/             # ✅ sandboxed Python + pytest runner
+│       │   ├── database/              # ✅ SQLite key-value store
+│       │   └── docs/                  # ✅ HTML fetch + PyPI lookup
 │       │
 │       ├── ui/
-│       │   ├── cli.py                 # Rich/Typer CLI (spooky theme 🎃)
+│       │   ├── cli.py                 # ✅ Rich/Typer CLI with Halloween theming
 │       │   └── web/
-│       │       ├── app.py             # FastAPI server
+│       │       ├── app.py             # ✅ FastAPI + WebSocket streaming
 │       │       ├── static/
 │       │       └── templates/
+│       │           └── index.html     # ✅ dark-mode Halloween UI
 │       │
 │       └── utils/
-│           ├── logging.py
-│           └── themes.py              # Halloween theming
+│           ├── json_utils.py          # ✅ extract_json() — 4-strategy LLM JSON parser
+│           ├── logging.py             # ✅ structlog configuration
+│           └── themes.py              # ✅ Halloween Rich theming
 │
 ├── tests/
 │   ├── test_agents/
+│   │   ├── test_jack.py               # ✅
+│   │   └── test_jack_phase2.py        # ✅ planner/router/full orchestration flow
 │   ├── test_subagents/
+│   │   └── test_parallel.py           # ✅ parallel execution + exception isolation
 │   ├── test_core/
+│   │   ├── test_types.py              # ✅
+│   │   ├── test_config.py             # ✅
+│   │   └── test_json_utils.py         # ✅ all 8 extraction strategies tested
 │   └── test_mcp_servers/
+│       └── test_filesystem.py         # ✅
 │
 └── docs/
     ├── architecture.md
     ├── learning_guide.md
     ├── mcp_guide.md
     └── agents/
+        └── jack.md
 ```
 
 ---
@@ -219,37 +233,43 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ## 📚 Learning Guide
 
-Work through these phases in order:
+### ✅ Phase 1: Core Foundation — *complete*
+- `core/types.py` — all Pydantic models: `Task`, `WorkflowState`, `AgentResponse`, `ConsensusResult`, `LLMConfig`
+- `core/agent.py` — `BaseAgent` with tool registration and the observe→think→act loop
+- `core/subagent.py` — `BaseSubAgent[T]` (generic typed) + `run_subagents_parallel()` via `asyncio.gather`
+- `core/llm.py` — `AnthropicClient`, `OpenAIClient`, `LLMClientFactory` registry
+- `core/config.py` — Pydantic Settings with per-agent model overrides, `populate_by_name=True`
 
-### Phase 1: Core Foundation
-- Understand `core/types.py` — the shared data models
-- Study `core/agent.py` — the base agent contract
-- Study `core/subagent.py` — how subagents differ from agents
-- Implement `core/llm.py` — abstract away the LLM providers
+### ✅ Phase 2: Jack — Orchestrator — *complete*
+- `agents/jack.py` — full plan→route→delegate→synthesize flow
+- `subagents/planner.py` — `PlannerSubagent` with `extract_json()` and graceful fallback
+- `subagents/router.py` — `RouterSubagent` with agent name validation and fallback to `mayor`
+- `utils/json_utils.py` — `extract_json()`: 4-strategy LLM JSON parser (direct → ```json fence → any fence → balanced brace scan)
+- **Key fix:** `Orchestrator` injects `self` into Jack so `delegate()` reaches real specialist agents
 
-### Phase 2: First Agent (Jack)
-- Implement `agents/jack.py` using the orchestrator pattern
-- Build `subagents/planner.py` and `subagents/router.py`
-- Learn tool-use loops and state management
+### 🔜 Phase 3: Zero + Filesystem MCP
+- Connect `zero.py` to `mcp_servers/filesystem/` (already implemented, needs wiring)
+- Implement `FileExplorerSubagent`, `DependencySubagent`, `ContextSubagent`
+- First live codebase navigation: `skellington "explore this repo and summarize its structure"`
 
-### Phase 3: MCP Servers
-- Build `mcp_servers/filesystem/` from scratch
-- Understand the MCP protocol (see `docs/mcp_guide.md`)
-- Connect Zero to use your new MCP server
+### 🔜 Phase 4: Sally the Builder
+- Wire `CodeGenSubagent` → filesystem MCP to actually write files
+- Test: `skellington "create a Python CLI that counts words in a file"`
 
-### Phase 4: Multi-Agent Consensus
-- Implement Lock, Shock & Barrel as voting subagents
-- Study debate and critic patterns
+### 🔜 Phase 5: Oogie + Web Search
+- Get a Brave or Tavily API key, test `mcp_servers/websearch/` standalone
+- Build `SearchSubagent` → `SummarySubagent` → `CompareSubagent` RAG pipeline
 
-### Phase 5: RAG & Research
-- Build the web search MCP server
-- Implement Oogie's research pipeline
-- Learn embedding and retrieval patterns
+### 🔜 Phase 6: Multi-Agent Consensus (Lock/Shock/Barrel)
+- Wire `ValidatorCoordinator` to `code_exec` MCP for real pytest runs
+- Study the parallel voting pattern in `validators.py`
 
-### Phase 6: UI Layer
-- Build the Rich CLI with theming
-- Add FastAPI web server
-- Stream agent output to the UI
+### 🔜 Phase 7: Streaming Web UI
+- Enhance the WebSocket handler in `ui/web/app.py` with per-step agent updates
+- Show which agent is active in the dark-mode UI
+
+### 🔜 Phase 8: Mayor + Reporting
+- Wire `FormatSubagent`, `DiffSubagent`, `StatusSubagent` to the full workflow
 
 ---
 

@@ -5,13 +5,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from skellington.agents.jack import Jack
-from skellington.core.types import AgentName, AgentResponse, Task, WorkflowState
+from skellington.core.types import AgentName, AgentResponse, LLMProvider, Task, WorkflowState
 
 
 @pytest.fixture
 def mock_llm():
     llm = MagicMock()
-    llm.provider = MagicMock()
+    llm.provider = LLMProvider.ANTHROPIC  # must be a real enum for LLMConfig validation
     llm.complete = AsyncMock(
         return_value=MagicMock(
             content="I shall orchestrate this grand Christmas adventure!",

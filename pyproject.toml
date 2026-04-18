@@ -119,6 +119,9 @@ plugins = ["pydantic.mypy"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "integration: spawns real subprocesses (slower, cross-platform-sensitive)",
+]
 
 # --- Coverage ---
 [tool.coverage.run]

@@ -1,7 +1,5 @@
 """Tests for the filesystem MCP server."""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -9,9 +7,9 @@ import pytest
 
 @pytest.fixture
 def tmp_allowed(tmp_path):
-    """Patch allowed paths to include tmp_path."""
+    """Patch allowed paths to include tmp_path. Settings now live in tools.py."""
     with patch(
-        "skellington.mcp_servers.filesystem.server.get_settings",
+        "skellington.mcp_servers.filesystem.tools.get_settings",
         return_value=type("S", (), {"filesystem_allowed_paths": [str(tmp_path)]})(),
     ):
         yield tmp_path

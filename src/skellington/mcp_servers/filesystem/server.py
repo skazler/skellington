@@ -1,161 +1,120 @@
 """
 Filesystem MCP Server 📂
 
-Provides file system tools to Skellington agents via the Model Context Protocol.
+Thin MCP adapter over `tools.py`. All real logic — access control, reads,
+writes, listing, searching — lives in `tools.py` so Python callers can use
+it directly without the stdio transport. This server just:
 
-Tools exposed:
-- read_file: Read the contents of a file
-- write_file: Write content to a file
-- list_directory: List files in a directory
-- search_files: Search for files matching<write_to_file>
-<path>src/skellington/mcp_servers/filesystem/server.py</path>
-<content>
-"""
-Filesystem MCP Server 📂
+  1. declares the MCP tool schemas
+  2. dispatches calls to `tools.py`
+  3. wraps return values in MCP `TextContent`
 
-Provides file system tools to agents via the Model Context Protocol.
-
-Learning goal: Build an MCP server from scratch using the Python MCP SDK.
-This is the foundation — once you understand this pattern, all other
-MCP servers follow the same structure.
-
-Tools exposed:
-- read_file: Read the contents of a file
-- write_file: Write content to a file
-- list_directory: List files in a directory
-- search_files: Regex search across files
+Learning goal: separate transport (MCP stdio) from behavior (plain Python
+functions). Same pattern every other MCP server in this repo will follow.
 """
 
 from __future__ import annotations
-
-import re
-from pathlib import Path
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-from skellington.core.config import get_settings
+from skellington.mcp_servers.filesystem import tools
 
 app = Server("skellington-filesystem")
 
 
-def _is_allowed(path: Path) -> bool:
-    """Check if a path is within an allowed root."""
-    settings = get_settings()
-    for allowed in settings.filesystem_allowed_paths:
-        try:
-            path.resolve().relative_to(Path(allowed).resolve())
-            return True
-        except ValueError:
-            continue
-    return False
+# ---------------------------------------------------------------------------
+# Tool schemas — shared between the MCP server and any in-process clients
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS: list[Tool] = [
+    Tool(
+        name="read_file",
+        description="Read the contents of a file at the given path.",
+        inputSchema={
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "File path to read"}},
+            "required": ["path"],
+        },
+    ),
+    Tool(
+        name="write_file",
+        description="Write content to a file, creating it if it doesn't exist.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["path", "content"],
+        },
+    ),
+    Tool(
+        name="list_directory",
+        description="List files and directories at a given path.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "recursive": {"type": "boolean", "default": False},
+            },
+            "required": ["path"],
+        },
+    ),
+    Tool(
+        name="search_files",
+        description="Search for a regex pattern across files in a directory.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "directory": {"type": "string"},
+                "pattern": {"type": "string"},
+                "file_glob": {"type": "string", "default": "**/*"},
+            },
+            "required": ["directory", "pattern"],
+        },
+    ),
+]
 
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="read_file",
-            description="Read the contents of a file at the given path.",
-            inputSchema={
-                "type": "object",
-                "properties": {"path": {"type": "string", "description": "File path to read"}},
-                "required": ["path"],
-            },
-        ),
-        Tool(
-            name="write_file",
-            description="Write content to a file, creating it if it doesn't exist.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["path", "content"],
-            },
-        ),
-        Tool(
-            name="list_directory",
-            description="List files and directories at a given path.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "recursive": {"type": "boolean", "default": False},
-                },
-                "required": ["path"],
-            },
-        ),
-        Tool(
-            name="search_files",
-            description="Search for a regex pattern across files in a directory.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "directory": {"type": "string"},
-                    "pattern": {"type": "string"},
-                    "file_glob": {"type": "string", "default": "**/*"},
-                },
-                "required": ["directory", "pattern"],
-            },
-        ),
-    ]
+    return TOOL_SCHEMAS
 
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "read_file":
-        p = Path(arguments["path"])
-        if not _is_allowed(p):
-            return [TextContent(type="text", text=f"Error: path not in allowed roots")]
-        try:
-            return [TextContent(type="text", text=p.read_text(encoding="utf-8"))]
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error: {e}")]
+    try:
+        if name == "read_file":
+            text = await tools.read_file(arguments["path"])
+            return [TextContent(type="text", text=text)]
 
-    if name == "write_file":
-        p = Path(arguments["path"])
-        if not _is_allowed(p):
-            return [TextContent(type="text", text="Error: path not in allowed roots")]
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(arguments["content"], encoding="utf-8")
-            return [TextContent(type="text", text=f"Written: {p}")]
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error: {e}")]
+        if name == "write_file":
+            written = await tools.write_file(arguments["path"], arguments["content"])
+            return [TextContent(type="text", text=f"Written: {written}")]
 
-    if name == "list_directory":
-        p = Path(arguments["path"])
-        recursive = arguments.get("recursive", False)
-        try:
-            pattern = "**/*" if recursive else "*"
-            entries = sorted(str(f.relative_to(p)) for f in p.glob(pattern))
+        if name == "list_directory":
+            entries = await tools.list_directory(
+                arguments["path"],
+                recursive=arguments.get("recursive", False),
+            )
             return [TextContent(type="text", text="\n".join(entries))]
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error: {e}")]
 
-    if name == "search_files":
-        directory = Path(arguments["directory"])
-        pattern = arguments["pattern"]
-        glob = arguments.get("file_glob", "**/*")
-        results: list[str] = []
-        try:
-            rx = re.compile(pattern)
-            for filepath in directory.glob(glob):
-                if filepath.is_file():
-                    try:
-                        for i, line in enumerate(filepath.read_text(encoding="utf-8").splitlines(), 1):
-                            if rx.search(line):
-                                results.append(f"{filepath}:{i}: {line}")
-                    except Exception:
-                        continue
-            return [TextContent(type="text", text="\n".join(results) or "No matches")]
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error: {e}")]
+        if name == "search_files":
+            matches = await tools.search_files(
+                arguments["directory"],
+                arguments["pattern"],
+                file_glob=arguments.get("file_glob", "**/*"),
+            )
+            return [TextContent(type="text", text="\n".join(matches) or "No matches")]
 
-    return [TextContent(type="text", text=f"Unknown tool: {name}")]
+        return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+    except tools.FilesystemAccessError as exc:
+        return [TextContent(type="text", text=f"Error: {exc}")]
+    except Exception as exc:  # noqa: BLE001 — MCP must never raise
+        return [TextContent(type="text", text=f"Error: {exc}")]
 
 
 async def main() -> None:
@@ -165,4 +124,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

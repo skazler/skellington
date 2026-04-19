@@ -69,10 +69,16 @@ Jack.run()                        ✅ live
   │    └─ RoutingDecision(assigned_agent="sally"|"oogie"|...)
   │
   ├─ Orchestrator.delegate(step, agent) × N
-  │    ├─ Sally   🔜 Phase 4      (currently: direct LLM stub)
+  │    ├─ Zero    ✅ Phase 3      (file explorer / dependency / context subagents)
+  │    ├─ Sally   ✅ Phase 4      (codegen / scaffold / refactor subagents)
   │    ├─ Oogie   🔜 Phase 5      (currently: direct LLM stub)
-  │    ├─ Zero    🔜 Phase 3      (currently: direct LLM stub)
   │    └─ Mayor   🔜 Phase 8      (currently: direct LLM stub)
+  │
+  ├─ ValidatorCoordinator         ✅ Phase 6 — parallel multi-agent consensus
+  │    ├─ Lock   → LintSubagent
+  │    ├─ Shock  → TestSubagent
+  │    └─ Barrel → SecuritySubagent
+  │         └─ ConsensusResult (majority vote + average score)
   │
   └─ Jack._synthesize()           ✅ live — weaves all results into final answer
        └─ AgentResponse
@@ -117,27 +123,27 @@ skellington/
 │       │
 │       ├── agents/                    # Main character agents
 │       │   ├── jack.py                # ✅ Orchestrator — plan → route → delegate → synthesize
-│       │   ├── sally.py               # 🔜 Builder (Phase 4)
+│       │   ├── sally.py               # ✅ Builder (Phase 4)
 │       │   ├── oogie.py               # 🔜 Researcher (Phase 5)
-│       │   ├── zero.py                # 🔜 Navigator (Phase 3)
-│       │   ├── validators.py          # 🔜 Lock/Shock/Barrel (Phase 6)
+│       │   ├── zero.py                # ✅ Navigator (Phase 3)
+│       │   ├── validators.py          # ✅ Lock/Shock/Barrel + ValidatorCoordinator (Phase 6)
 │       │   └── mayor.py               # 🔜 Reporter (Phase 8)
 │       │
 │       ├── subagents/                 # Specialized subagents
 │       │   ├── planner.py             # ✅ Plan decomposition with JSON fallback
 │       │   ├── router.py              # ✅ Step routing with agent validation + fallback
-│       │   ├── codegen.py             # 🔜 (Phase 4)
-│       │   ├── refactor.py            # 🔜 (Phase 4)
-│       │   ├── scaffold.py            # 🔜 (Phase 4)
+│       │   ├── codegen.py             # ✅ (Phase 4)
+│       │   ├── refactor.py            # ✅ (Phase 4)
+│       │   ├── scaffold.py            # ✅ (Phase 4)
 │       │   ├── search.py              # 🔜 (Phase 5)
 │       │   ├── summary.py             # 🔜 (Phase 5)
 │       │   ├── compare.py             # 🔜 (Phase 5)
-│       │   ├── file_explorer.py       # 🔜 (Phase 3)
-│       │   ├── dependency.py          # 🔜 (Phase 3)
-│       │   ├── context.py             # 🔜 (Phase 3)
-│       │   ├── lint.py                # 🔜 (Phase 6)
-│       │   ├── test_runner.py         # 🔜 (Phase 6)
-│       │   ├── security.py            # 🔜 (Phase 6)
+│       │   ├── file_explorer.py       # ✅ (Phase 3)
+│       │   ├── dependency.py          # ✅ (Phase 3)
+│       │   ├── context.py             # ✅ (Phase 3)
+│       │   ├── lint.py                # ✅ (Phase 6)
+│       │   ├── test_runner.py         # ✅ (Phase 6)
+│       │   ├── security.py            # ✅ (Phase 6)
 │       │   ├── formatter.py           # 🔜 (Phase 8)
 │       │   ├── diff.py                # 🔜 (Phase 8)
 │       │   └── status.py              # 🔜 (Phase 8)
@@ -166,15 +172,29 @@ skellington/
 ├── tests/
 │   ├── test_agents/
 │   │   ├── test_jack.py               # ✅
-│   │   └── test_jack_phase2.py        # ✅ planner/router/full orchestration flow
+│   │   ├── test_jack_phase2.py        # ✅ planner/router/full orchestration flow
+│   │   ├── test_zero.py               # ✅ Phase 3: navigation flow + orthodox MCP smoke test
+│   │   ├── test_sally.py              # ✅ Phase 4: all three intent paths + MCP smoke test
+│   │   └── test_validators.py         # ✅ Phase 6: each validator + consensus + failure isolation
 │   ├── test_subagents/
-│   │   └── test_parallel.py           # ✅ parallel execution + exception isolation
+│   │   ├── test_parallel.py           # ✅ parallel execution + exception isolation
+│   │   ├── test_file_explorer.py      # ✅ Phase 3
+│   │   ├── test_dependency.py         # ✅ Phase 3
+│   │   ├── test_context.py            # ✅ Phase 3
+│   │   ├── test_codegen.py            # ✅ Phase 4
+│   │   ├── test_scaffold.py           # ✅ Phase 4
+│   │   ├── test_refactor.py           # ✅ Phase 4
+│   │   ├── test_lint.py               # ✅ Phase 6
+│   │   ├── test_test_runner.py        # ✅ Phase 6
+│   │   └── test_security.py           # ✅ Phase 6
 │   ├── test_core/
 │   │   ├── test_types.py              # ✅
 │   │   ├── test_config.py             # ✅
 │   │   └── test_json_utils.py         # ✅ all 8 extraction strategies tested
 │   └── test_mcp_servers/
-│       └── test_filesystem.py         # ✅
+│       ├── test_filesystem.py         # ✅
+│       ├── test_filesystem_client.py  # ✅ stdio MCP client
+│       └── test_filesystem_tools.py   # ✅ pure tool functions + access gating
 │
 └── docs/
     ├── architecture.md
@@ -247,22 +267,29 @@ OLLAMA_BASE_URL=http://localhost:11434
 - `utils/json_utils.py` — `extract_json()`: 4-strategy LLM JSON parser (direct → ```json fence → any fence → balanced brace scan)
 - **Key fix:** `Orchestrator` injects `self` into Jack so `delegate()` reaches real specialist agents
 
-### 🔜 Phase 3: Zero + Filesystem MCP
-- Connect `zero.py` to `mcp_servers/filesystem/` (already implemented, needs wiring)
-- Implement `FileExplorerSubagent`, `DependencySubagent`, `ContextSubagent`
-- First live codebase navigation: `skellington "explore this repo and summarize its structure"`
+### ✅ Phase 3: Zero + Filesystem MCP — *complete*
+- `agents/zero.py` wired to `mcp_servers/filesystem/` (both direct `tools.py` and stdio `MCPFilesystemToolkit`)
+- `FileExplorerSubagent`, `DependencySubagent`, `ContextSubagent` — all live with `fs=None` injection
+- Navigation metadata published to `state.metadata["navigation"]` for downstream agents
 
-### 🔜 Phase 4: Sally the Builder
-- Wire `CodeGenSubagent` → filesystem MCP to actually write files
-- Test: `skellington "create a Python CLI that counts words in a file"`
+### ✅ Phase 4: Sally the Builder — *complete*
+- `agents/sally.py` with keyword-heuristic intent routing: `codegen` / `scaffold` / `refactor`
+- `CodeGenSubagent`, `ScaffoldSubagent`, `RefactorSubagent` — pure structured-output; Sally owns all filesystem writes
+- Works against both the in-process filesystem toolkit and the orthodox stdio MCP client
+- Build metadata published to `state.metadata["builds"]`
+- Side-quest fix: `NoDecode` + `field_validator` on `FILESYSTEM_ALLOWED_PATHS` so comma-delimited env values work
 
 ### 🔜 Phase 5: Oogie + Web Search
 - Get a Brave or Tavily API key, test `mcp_servers/websearch/` standalone
 - Build `SearchSubagent` → `SummarySubagent` → `CompareSubagent` RAG pipeline
 
-### 🔜 Phase 6: Multi-Agent Consensus (Lock/Shock/Barrel)
-- Wire `ValidatorCoordinator` to `code_exec` MCP for real pytest runs
-- Study the parallel voting pattern in `validators.py`
+### ✅ Phase 6: Multi-Agent Consensus (Lock/Shock/Barrel) — *complete*
+- `Lock` → `LintSubagent`, `Shock` → `TestSubagent`, `Barrel` → `SecuritySubagent` — each validator is thin, subagent does the analysis
+- Each `run()` produces a `ValidationVerdict` packed in `AgentResponse.metadata["verdict"]`
+- `ValidatorCoordinator.validate()` runs all three in parallel via `run_subagents_parallel`; majority rules (2/3 = pass)
+- Exception isolation: a broken validator becomes a failed verdict — the panel keeps voting
+- Consensus published to `state.metadata["validation"]`
+- 🔜 Next: wire `TestSubagent`/`Shock` to the `code_exec` MCP server for real pytest runs
 
 ### 🔜 Phase 7: Streaming Web UI
 - Enhance the WebSocket handler in `ui/web/app.py` with per-step agent updates

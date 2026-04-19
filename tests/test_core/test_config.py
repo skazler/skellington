@@ -25,7 +25,10 @@ def test_get_model_for_agent_override():
     assert s.get_model_for_agent("sally") == "gpt-4o"
 
 
-def test_has_provider_false():
-    s = Settings()
-    # No API keys set in test environment
+def test_has_provider_false(monkeypatch):
+    # Isolate from any ambient .env or exported API keys so we can assert on
+    # the "no key configured" branch.
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings(_env_file=None)
     assert s.has_provider(LLMProvider.ANTHROPIC) is False

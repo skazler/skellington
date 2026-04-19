@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from skellington.core.subagent import BaseSubAgent
 from skellington.core.types import AgentName
+from skellington.utils.json_utils import extract_json
 
 
 class FormattedOutput(BaseModel):
@@ -29,15 +30,24 @@ class FormatSubagent(BaseSubAgent[FormattedOutput]):
     @property
     def system_prompt(self) -> str:
         return """You are a content formatting expert. Format information clearly for
-the target medium (markdown, HTML, plain text, JSON).
-Respond with JSON: {"format": str, "content": str, "title": str}"""
+the target medium (markdown, html, plain text, json).
 
-    async def run(self, content: str, target_format: str = "markdown") -> FormattedOutput:
-        """Format content for the target medium."""
+Respond with ONLY a JSON object — no prose, no fences:
+{"format": str, "content": str, "title": str}"""
+
+    async def run(
+        self,
+        content: str,
+        target_format: str = "markdown",
+        title: str = "Report",
+    ) -> FormattedOutput:
+        """Format ``content`` for ``target_format``."""
         response = await self._call_llm(
             f"Format this content as {target_format}:\n\n{content}",
+            temperature=0.2,
         )
-        import json
-
-        data = json.loads(response)
+        data = extract_json(response)
+        data.setdefault("format", target_format)
+        data.setdefault("content", content)
+        data.setdefault("title", title)
         return FormattedOutput(**data)

@@ -8,30 +8,45 @@
         :root {
             --bg: #0d0d0d;
             --surface: #1a1a1a;
+            --surface-2: #222;
             --border: #2d2d2d;
             --orange: #ff6b1a;
             --purple: #8b44ff;
             --green: #00cc66;
+            --blue: #44aaff;
             --text: #e8e8e8;
             --dim: #888;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; height: 100vh; display: flex; flex-direction: column; }
-        header { padding: 1.5rem; border-bottom: 1px solid var(--border); text-align: center; }
-        header h1 { font-size: 2rem; color: var(--orange); }
-        header p { color: var(--dim); margin-top: 0.25rem; }
-        .agents { display: flex; gap: 0.5rem; justify-content: center; padding: 1rem; flex-wrap: wrap; }
-        .agent-badge { padding: 0.3rem 0.8rem; border-radius: 999px; border: 1px solid var(--border); font-size: 0.8rem; color: var(--dim); }
-        .main { flex: 1; display: flex; flex-direction: column; padding: 1.5rem; gap: 1rem; max-width: 900px; margin: 0 auto; width: 100%; }
-        #output { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-y: auto; min-height: 200px; white-space: pre-wrap; line-height: 1.6; }
-        .input-row { display: flex; gap: 0.75rem; }
+        header { padding: 1.2rem; border-bottom: 1px solid var(--border); text-align: center; }
+        header h1 { font-size: 1.8rem; color: var(--orange); }
+        header p { color: var(--dim); margin-top: 0.25rem; font-size: 0.85rem; }
+        .agents { display: flex; gap: 0.5rem; justify-content: center; padding: 0.8rem; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+        .agent-badge { padding: 0.3rem 0.8rem; border-radius: 999px; border: 1px solid var(--border); font-size: 0.8rem; color: var(--dim); transition: all 0.15s ease; }
+        .agent-badge.active { border-color: var(--orange); color: var(--orange); box-shadow: 0 0 8px rgba(255,107,26,0.4); }
+        .agent-badge.done { border-color: var(--green); color: var(--green); }
+        .agent-badge.failed { border-color: #ff4444; color: #ff4444; }
+        .main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; padding: 1rem; min-height: 0; max-width: 1400px; margin: 0 auto; width: 100%; }
+        .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-y: auto; min-height: 0; }
+        .panel h2 { font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        .timeline-entry { display: flex; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px dashed var(--border); font-size: 0.85rem; }
+        .timeline-entry:last-child { border-bottom: none; }
+        .timeline-entry .t-type { color: var(--purple); min-width: 140px; flex-shrink: 0; font-weight: bold; }
+        .timeline-entry .t-agent { color: var(--orange); min-width: 70px; flex-shrink: 0; }
+        .timeline-entry .t-msg { color: var(--text); word-break: break-word; }
+        .timeline-entry.complete .t-type { color: var(--green); }
+        .timeline-entry.fail .t-type, .timeline-entry.failed .t-type { color: #ff4444; }
+        #result { white-space: pre-wrap; line-height: 1.6; color: var(--green); }
+        #result:empty::before { content: "Waiting for final synthesis…"; color: var(--dim); font-style: italic; }
+        .input-bar { padding: 1rem; border-top: 1px solid var(--border); display: flex; gap: 0.75rem; max-width: 1400px; margin: 0 auto; width: 100%; }
         #request-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; color: var(--text); font-family: inherit; font-size: 1rem; outline: none; }
         #request-input:focus { border-color: var(--orange); }
         button { background: var(--orange); color: #000; border: none; border-radius: 8px; padding: 0.75rem 1.5rem; font-family: inherit; font-size: 1rem; font-weight: bold; cursor: pointer; }
         button:hover { opacity: 0.85; }
-        .status-line { color: var(--purple); }
-        .result-line { color: var(--green); }
-        .error-line { color: #ff4444; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .status-bar { text-align: center; padding: 0.5rem; color: var(--dim); font-size: 0.85rem; min-height: 2rem; }
+        .status-bar.active { color: var(--orange); }
     </style>
 </head>
 <body>
@@ -40,63 +55,140 @@
         <p>Multi-agent AI orchestration — Halloween meets Christmas</p>
     </header>
     <div class="agents" id="agents-list">
-        <span class="agent-badge">🎃 Jack</span>
-        <span class="agent-badge">🧟‍♀️ Sally</span>
-        <span class="agent-badge">🎰 Oogie</span>
-        <span class="agent-badge">👻 Zero</span>
-        <span class="agent-badge">👹 Lock/Shock/Barrel</span>
-        <span class="agent-badge">🎭 Mayor</span>
+        <span class="agent-badge" data-agent="jack">🎃 Jack</span>
+        <span class="agent-badge" data-agent="sally">🧟‍♀️ Sally</span>
+        <span class="agent-badge" data-agent="oogie">🎰 Oogie</span>
+        <span class="agent-badge" data-agent="zero">👻 Zero</span>
+        <span class="agent-badge" data-agent="lock">👹 Lock</span>
+        <span class="agent-badge" data-agent="shock">🔮 Shock</span>
+        <span class="agent-badge" data-agent="barrel">💀 Barrel</span>
+        <span class="agent-badge" data-agent="mayor">🎭 Mayor</span>
     </div>
+    <div class="status-bar" id="status-bar">Ready. Enter a request below and Jack will orchestrate the crew.</div>
     <div class="main">
-        <div id="output">Ready. Enter a request below and Jack will orchestrate the crew.
-</div>
-        <div class="input-row">
-            <input id="request-input" type="text" placeholder="e.g. research Python async libraries and scaffold a demo project" />
-            <button onclick="sendRequest()">Run 🎃</button>
+        <div class="panel">
+            <h2>Live events</h2>
+            <div id="timeline"></div>
         </div>
+        <div class="panel">
+            <h2>Final result</h2>
+            <div id="result"></div>
+        </div>
+    </div>
+    <div class="input-bar">
+        <input id="request-input" type="text" placeholder="e.g. research Python async libraries and scaffold a demo project" />
+        <button id="run-btn" onclick="sendRequest()">Run 🎃</button>
     </div>
 
     <script>
-        const output = document.getElementById('output');
+        const timeline = document.getElementById('timeline');
+        const result = document.getElementById('result');
         const input = document.getElementById('request-input');
+        const runBtn = document.getElementById('run-btn');
+        const statusBar = document.getElementById('status-bar');
 
-        function appendLine(text, cls = '') {
-            const line = document.createElement('div');
-            if (cls) line.className = cls;
-            line.textContent = text;
-            output.appendChild(line);
-            output.scrollTop = output.scrollHeight;
+        function setAgentState(agent, state) {
+            if (!agent) return;
+            const badge = document.querySelector(`.agent-badge[data-agent="${agent}"]`);
+            if (!badge) return;
+            badge.classList.remove('active', 'done', 'failed');
+            if (state) badge.classList.add(state);
+        }
+
+        function clearAgentStates() {
+            document.querySelectorAll('.agent-badge').forEach(b => {
+                b.classList.remove('active', 'done', 'failed');
+            });
+        }
+
+        function addTimeline(event) {
+            const row = document.createElement('div');
+            row.className = 'timeline-entry';
+            if (event.type && event.type.endsWith('.complete')) row.classList.add('complete');
+            if (event.type && (event.type.endsWith('.fail') || event.type.endsWith('.failed'))) row.classList.add('fail');
+
+            const type = document.createElement('span');
+            type.className = 't-type';
+            type.textContent = event.type || '?';
+            row.appendChild(type);
+
+            const agent = document.createElement('span');
+            agent.className = 't-agent';
+            agent.textContent = event.agent || '—';
+            row.appendChild(agent);
+
+            const msg = document.createElement('span');
+            msg.className = 't-msg';
+            msg.textContent = (event.message || '').slice(0, 300);
+            row.appendChild(msg);
+
+            timeline.appendChild(row);
+            timeline.scrollTop = timeline.scrollHeight;
+        }
+
+        function handleEvent(event) {
+            addTimeline(event);
+
+            switch (event.type) {
+                case 'workflow.start':
+                    statusBar.textContent = '🎃 Jack is planning…';
+                    statusBar.classList.add('active');
+                    setAgentState('jack', 'active');
+                    break;
+                case 'plan.created':
+                    statusBar.textContent = `Plan ready (${event.message}). Routing to specialists…`;
+                    break;
+                case 'agent.start':
+                    setAgentState(event.agent, 'active');
+                    statusBar.textContent = `${event.agent || 'agent'} working on: ${event.message || ''}`;
+                    break;
+                case 'agent.complete':
+                    setAgentState(event.agent, 'done');
+                    break;
+                case 'agent.fail':
+                    setAgentState(event.agent, 'failed');
+                    break;
+                case 'synthesis.start':
+                    statusBar.textContent = '🎃 Jack is weaving the final answer…';
+                    setAgentState('jack', 'active');
+                    break;
+                case 'workflow.complete':
+                    statusBar.textContent = event.data && event.data.success ? '✅ Done.' : '⚠️ Workflow failed.';
+                    statusBar.classList.remove('active');
+                    setAgentState('jack', event.data && event.data.success ? 'done' : 'failed');
+                    break;
+                case 'result.final':
+                    result.textContent = event.message || '(no result)';
+                    runBtn.disabled = false;
+                    break;
+            }
         }
 
         async function sendRequest() {
             const request = input.value.trim();
             if (!request) return;
             input.value = '';
-            output.innerHTML = '';
+            timeline.innerHTML = '';
+            result.textContent = '';
+            clearAgentStates();
+            runBtn.disabled = true;
 
-            appendLine(`> ${request}`, 'dim');
-            appendLine('');
+            statusBar.textContent = 'Connecting…';
+            statusBar.classList.add('active');
 
             const ws = new WebSocket(`ws://${location.host}/ws/run`);
 
             ws.onopen = () => ws.send(JSON.stringify({ request }));
-
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'status') {
-                    appendLine(data.message, 'status-line');
-                } else if (data.type === 'complete') {
-                    appendLine('');
-                    if (data.success) {
-                        appendLine('─'.repeat(60));
-                        appendLine(data.result || '(no result)', 'result-line');
-                    } else {
-                        appendLine(`Error: ${data.result || 'workflow failed'}`, 'error-line');
-                    }
-                }
+            ws.onmessage = (ev) => {
+                try { handleEvent(JSON.parse(ev.data)); }
+                catch (e) { console.error(e); }
             };
-
-            ws.onerror = () => appendLine('WebSocket error', 'error-line');
+            ws.onerror = () => {
+                statusBar.textContent = 'WebSocket error';
+                statusBar.classList.remove('active');
+                runBtn.disabled = false;
+            };
+            ws.onclose = () => { runBtn.disabled = false; };
         }
 
         input.addEventListener('keydown', e => { if (e.key === 'Enter') sendRequest(); });

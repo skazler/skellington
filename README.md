@@ -115,7 +115,7 @@ skellington/
 │       ├── core/                      # Foundation layer  ✅ implemented
 │       │   ├── agent.py               # Base Agent class + tool-use loop
 │       │   ├── subagent.py            # Base SubAgent class + run_subagents_parallel()
-│       │   ├── orchestrator.py        # AgentRegistry + Orchestrator.delegate()
+│       │   ├── orchestrator.py        # AgentRegistry + Orchestrator.delegate() + event bus (Phase 7)
 │       │   ├── llm.py                 # AnthropicClient, OpenAIClient, LLMClientFactory
 │       │   ├── memory.py              # SQLite-backed agent memory (SQLAlchemy async)
 │       │   ├── config.py              # Pydantic Settings + per-agent model overrides
@@ -159,10 +159,10 @@ skellington/
 │       ├── ui/
 │       │   ├── cli.py                 # ✅ Rich/Typer CLI with Halloween theming
 │       │   └── web/
-│       │       ├── app.py             # ✅ FastAPI + WebSocket streaming
+│       │       ├── app.py             # ✅ FastAPI + WebSocket streaming (Phase 7)
 │       │       ├── static/
 │       │       └── templates/
-│       │           └── index.html     # ✅ dark-mode Halloween UI
+│       │           └── index.html     # ✅ dark-mode UI + live event timeline (Phase 7)
 │       │
 │       └── utils/
 │           ├── json_utils.py          # ✅ extract_json() — 4-strategy LLM JSON parser
@@ -198,7 +198,10 @@ skellington/
 │   ├── test_core/
 │   │   ├── test_types.py              # ✅
 │   │   ├── test_config.py             # ✅
-│   │   └── test_json_utils.py         # ✅ all 8 extraction strategies tested
+│   │   ├── test_json_utils.py         # ✅ all 8 extraction strategies tested
+│   │   └── test_events.py             # ✅ Phase 7: Orchestrator event bus + Jack emit wiring
+│   ├── test_ui/
+│   │   └── test_websocket.py          # ✅ Phase 7: /ws/run streams events to the client
 │   └── test_mcp_servers/
 │       ├── test_filesystem.py         # ✅
 │       ├── test_filesystem_client.py  # ✅ stdio MCP client
@@ -303,9 +306,13 @@ OLLAMA_BASE_URL=http://localhost:11434
 - Consensus published to `state.metadata["validation"]`
 - 🔜 Next: wire `TestSubagent`/`Shock` to the `code_exec` MCP server for real pytest runs
 
-### 🔜 Phase 7: Streaming Web UI
-- Enhance the WebSocket handler in `ui/web/app.py` with per-step agent updates
-- Show which agent is active in the dark-mode UI
+### ✅ Phase 7: Streaming Web UI — *complete*
+- `Orchestrator` takes an `on_event: EventCallback` and exposes `emit(type, *, agent, message, **data)` — callback errors are swallowed so a broken UI never crashes the workflow
+- Event vocabulary: `workflow.start/complete`, `plan.created/failed`, `route.decided/failed`, `agent.start/complete/fail`, `synthesis.start`, `result.final`
+- Jack threads `_emit` through every stage of his pipeline (plan → route → delegate → synthesize) so every subtask transition appears on the wire
+- `/ws/run` passes `on_event=websocket.send_json` — every orchestrator event streams to the browser as JSON, no polling
+- Dark-mode frontend renders a two-pane UI: live event timeline on the left, final synthesized answer on the right. Agent badges light up orange (active) / green (done) / red (failed) as events arrive
+- Pattern note: sync and async callbacks both work — `emit()` awaits whatever the callback returns. Tests use plain `list.append` sinks; the UI uses the async `websocket.send_json`
 
 ### ✅ Phase 8: Mayor + Reporting — *complete*
 - `agents/mayor.py` collects findings from `state.metadata` (navigation/builds/research/validation) and weaves them into one digest

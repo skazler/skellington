@@ -87,25 +87,35 @@ async def websocket_run(websocket: WebSocket) -> None:
     """
     WebSocket endpoint for streaming agent output in real time.
 
-    Learning goal: WebSocket streaming with FastAPI — connect the frontend
-    to live agent updates as they happen.
+    Learning goal: WebSocket streaming with FastAPI — the orchestrator emits
+    structured events (workflow.*, plan.*, route.*, agent.*, synthesis.*) and
+    we forward each one as JSON to the browser so the UI can render a live
+    timeline of what the crew is doing.
     """
     await websocket.accept()
     try:
         data = await websocket.receive_json()
         request = data.get("request", "")
 
-        await websocket.send_json({"type": "status", "message": "🎃 Jack is on the case..."})
+        async def forward(event: dict) -> None:
+            try:
+                await websocket.send_json(event)
+            except Exception:  # noqa: BLE001 — client gone; let the workflow finish
+                pass
 
-        orchestrator = Orchestrator()
+        orchestrator = Orchestrator(on_event=forward)
         state = await orchestrator.run(request)
 
         root_task = state.tasks[0] if state.tasks else None
         await websocket.send_json(
             {
-                "type": "complete",
-                "success": root_task.status.value == "complete" if root_task else False,
-                "result": root_task.result if root_task else None,
+                "type": "result.final",
+                "agent": "jack",
+                "message": root_task.result if root_task else "",
+                "data": {
+                    "success": root_task.status.value == "complete" if root_task else False,
+                    "task_count": len(state.tasks),
+                },
             }
         )
     except WebSocketDisconnect:

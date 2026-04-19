@@ -11,7 +11,7 @@ Key patterns:
 
 from __future__ import annotations
 
-from uuid import UUID
+from typing import Any, Awaitable, Callable
 
 import structlog
 
@@ -24,6 +24,12 @@ from skellington.core.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+# An async event sink — the web UI passes a callback that pushes each event
+# to a WebSocket; tests pass a list-appender. Sync callbacks also work
+# (we await whatever the call returns; non-coroutines are tolerated).
+EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
 class AgentRegistry:
@@ -68,8 +74,32 @@ class Orchestrator:
     Think of it as the stage manager behind Jack's performance.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, on_event: EventCallback | None = None) -> None:
         self.log = logger.bind(component="orchestrator")
+        self._on_event = on_event
+
+    async def emit(
+        self,
+        event_type: str,
+        *,
+        agent: AgentName | str | None = None,
+        message: str = "",
+        **data: Any,
+    ) -> None:
+        """Forward a single workflow event to the registered callback (if any).
+
+        Swallows callback errors so a broken UI never crashes the workflow.
+        """
+        if self._on_event is None:
+            return
+        agent_value = agent.value if isinstance(agent, AgentName) else agent
+        event = {"type": event_type, "agent": agent_value, "message": message, "data": data}
+        try:
+            result = self._on_event(event)
+            if result is not None:  # support both sync and async callbacks
+                await result
+        except Exception as exc:  # noqa: BLE001 — never let UI plumbing crash the workflow
+            self.log.warning("event callback failed", error=str(exc), event_type=event_type)
 
     async def run(self, user_request: str) -> WorkflowState:
         """
@@ -78,6 +108,7 @@ class Orchestrator:
         This is the main entry point for the entire system.
         """
         self.log.info("starting workflow", request=user_request[:100])
+        await self.emit("workflow.start", message=user_request)
 
         state = WorkflowState(user_request=user_request)
 
@@ -96,6 +127,7 @@ class Orchestrator:
             self.log.error("Jack not registered")
             root_task.status = TaskStatus.FAILED
             root_task.error = "Orchestrator: Jack (the orchestrator agent) is not registered"
+            await self.emit("workflow.complete", message="Jack not registered", success=False)
             return state
 
         jack._orchestrator = self  # type: ignore[attr-defined]
@@ -114,6 +146,12 @@ class Orchestrator:
             root_task.error = str(exc)
 
         self.log.info("workflow complete", status=root_task.status.value)
+        await self.emit(
+            "workflow.complete",
+            message=root_task.result or root_task.error or "",
+            success=root_task.status == TaskStatus.COMPLETE,
+            task_count=len(state.tasks),
+        )
         return state
 
     async def delegate(
@@ -142,16 +180,24 @@ class Orchestrator:
         state.active_agent = to_agent
 
         self.log.info("delegating task", task=task.title, to=to_agent.value)
+        await self.emit("agent.start", agent=to_agent, message=task.title)
 
         try:
             response = await agent.run(task, state)  # type: ignore[attr-defined]
             task.status = TaskStatus.COMPLETE if response.success else TaskStatus.FAILED
             task.result = response.content
+            await self.emit(
+                "agent.complete" if response.success else "agent.fail",
+                agent=to_agent,
+                message=(response.content or "")[:200],
+                success=response.success,
+            )
             return response
         except Exception as exc:
             self.log.exception("delegated task failed", to=to_agent.value, error=str(exc))
             task.status = TaskStatus.FAILED
             task.error = str(exc)
+            await self.emit("agent.fail", agent=to_agent, message=str(exc), success=False)
             return AgentResponse(
                 agent=to_agent,
                 task_id=task.id,

@@ -109,12 +109,19 @@ Always explain your plan before executing it."""
             self.log.info("plan created", steps=len(plan.steps))
         except Exception as exc:
             self.log.warning("planning failed, falling back to direct response", error=str(exc))
+            await self._emit("plan.failed", message=str(exc))
             return await self._direct_response(task)
 
         if not plan.steps:
             self.log.warning("planner returned empty plan, falling back to direct response")
+            await self._emit("plan.failed", message="empty plan")
             return await self._direct_response(task)
 
+        await self._emit(
+            "plan.created",
+            message=f"{len(plan.steps)} steps",
+            steps=plan.steps,
+        )
         task.status = TaskStatus.IN_PROGRESS
 
         # 2. Route all steps in parallel
@@ -125,6 +132,7 @@ Always explain your plan before executing it."""
         for step, decision in zip(plan.steps, routing_decisions):
             if isinstance(decision, Exception):
                 self.log.warning("routing failed for step", step=step, error=str(decision))
+                await self._emit("route.failed", message=step[:80])
                 continue
 
             agent_name = _resolve_agent_name(decision.assigned_agent)
@@ -134,11 +142,23 @@ Always explain your plan before executing it."""
                 agent=decision.assigned_agent,
                 reasoning=decision.reasoning,
             )
+            await self._emit(
+                "route.decided",
+                agent=decision.assigned_agent,
+                message=step[:80],
+                reasoning=decision.reasoning,
+            )
             response = await self._delegate_step(step, agent_name, task, state)
             responses.append((step, response))
 
         # 4. Synthesize
+        await self._emit("synthesis.start", message=f"weaving {len(responses)} results")
         return await self._synthesize(task, plan, responses)
+
+    async def _emit(self, event_type: str, **kwargs) -> None:
+        """Forward an event through the orchestrator if one is wired in."""
+        if self._orchestrator is not None:
+            await self._orchestrator.emit(event_type, **kwargs)
 
     # ------------------------------------------------------------------
     # Private helpers

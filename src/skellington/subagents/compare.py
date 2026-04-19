@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from skellington.core.subagent import BaseSubAgent
 from skellington.core.types import AgentName
+from skellington.utils.json_utils import extract_json
 
 
 class Comparison(BaseModel):
@@ -32,17 +33,23 @@ class CompareSubagent(BaseSubAgent[Comparison]):
     def system_prompt(self) -> str:
         return """You are an expert analyst who compares options objectively.
 Build a comparison matrix and provide a clear recommendation.
-Respond with JSON: {"items": [str], "criteria": [str],
-"matrix": {"item": {"criterion": "assessment"}}, "recommendation": str, "reasoning": str}"""
+
+Respond with ONLY a JSON object — no prose, no fences:
+{"items": [str], "criteria": [str],
+ "matrix": {"item": {"criterion": "assessment"}},
+ "recommendation": str, "reasoning": str}"""
 
     async def run(self, items: list[str], context: str = "") -> Comparison:
-        """Compare the given items."""
+        """Compare ``items`` against each other, optionally given ``context``."""
         items_text = "\n".join(f"- {item}" for item in items)
         response = await self._call_llm(
             f"Compare these options:\n{items_text}\n\nContext: {context}",
             temperature=0.2,
         )
-        import json
-
-        data = json.loads(response)
+        data = extract_json(response)
+        data.setdefault("items", list(items))
+        data.setdefault("criteria", [])
+        data.setdefault("matrix", {})
+        data.setdefault("recommendation", "")
+        data.setdefault("reasoning", "")
         return Comparison(**data)

@@ -69,10 +69,16 @@ Jack.run()                        ✅ live
   │    └─ RoutingDecision(assigned_agent="sally"|"oogie"|...)
   │
   ├─ Orchestrator.delegate(step, agent) × N
-  │    ├─ Sally   🔜 Phase 4      (currently: direct LLM stub)
-  │    ├─ Oogie   🔜 Phase 5      (currently: direct LLM stub)
-  │    ├─ Zero    🔜 Phase 3      (currently: direct LLM stub)
-  │    └─ Mayor   🔜 Phase 8      (currently: direct LLM stub)
+  │    ├─ Zero    ✅ Phase 3      (file explorer / dependency / context subagents)
+  │    ├─ Sally   ✅ Phase 4      (codegen / scaffold / refactor subagents)
+  │    ├─ Oogie   ✅ Phase 5      (search → summary → compare; Brave/Tavily or LLM fallback)
+  │    └─ Mayor   ✅ Phase 8      (status → optional diff → format; reads state.metadata)
+  │
+  ├─ ValidatorCoordinator         ✅ Phase 6 — parallel multi-agent consensus
+  │    ├─ Lock   → LintSubagent
+  │    ├─ Shock  → TestSubagent
+  │    └─ Barrel → SecuritySubagent
+  │         └─ ConsensusResult (majority vote + average score)
   │
   └─ Jack._synthesize()           ✅ live — weaves all results into final answer
        └─ AgentResponse
@@ -109,7 +115,7 @@ skellington/
 │       ├── core/                      # Foundation layer  ✅ implemented
 │       │   ├── agent.py               # Base Agent class + tool-use loop
 │       │   ├── subagent.py            # Base SubAgent class + run_subagents_parallel()
-│       │   ├── orchestrator.py        # AgentRegistry + Orchestrator.delegate()
+│       │   ├── orchestrator.py        # AgentRegistry + Orchestrator.delegate() + event bus (Phase 7)
 │       │   ├── llm.py                 # AnthropicClient, OpenAIClient, LLMClientFactory
 │       │   ├── memory.py              # SQLite-backed agent memory (SQLAlchemy async)
 │       │   ├── config.py              # Pydantic Settings + per-agent model overrides
@@ -117,30 +123,30 @@ skellington/
 │       │
 │       ├── agents/                    # Main character agents
 │       │   ├── jack.py                # ✅ Orchestrator — plan → route → delegate → synthesize
-│       │   ├── sally.py               # 🔜 Builder (Phase 4)
-│       │   ├── oogie.py               # 🔜 Researcher (Phase 5)
-│       │   ├── zero.py                # 🔜 Navigator (Phase 3)
-│       │   ├── validators.py          # 🔜 Lock/Shock/Barrel (Phase 6)
-│       │   └── mayor.py               # 🔜 Reporter (Phase 8)
+│       │   ├── sally.py               # ✅ Builder (Phase 4)
+│       │   ├── oogie.py               # ✅ Researcher (Phase 5)
+│       │   ├── zero.py                # ✅ Navigator (Phase 3)
+│       │   ├── validators.py          # ✅ Lock/Shock/Barrel + ValidatorCoordinator (Phase 6)
+│       │   └── mayor.py               # ✅ Reporter (Phase 8)
 │       │
 │       ├── subagents/                 # Specialized subagents
 │       │   ├── planner.py             # ✅ Plan decomposition with JSON fallback
 │       │   ├── router.py              # ✅ Step routing with agent validation + fallback
-│       │   ├── codegen.py             # 🔜 (Phase 4)
-│       │   ├── refactor.py            # 🔜 (Phase 4)
-│       │   ├── scaffold.py            # 🔜 (Phase 4)
-│       │   ├── search.py              # 🔜 (Phase 5)
-│       │   ├── summary.py             # 🔜 (Phase 5)
-│       │   ├── compare.py             # 🔜 (Phase 5)
-│       │   ├── file_explorer.py       # 🔜 (Phase 3)
-│       │   ├── dependency.py          # 🔜 (Phase 3)
-│       │   ├── context.py             # 🔜 (Phase 3)
-│       │   ├── lint.py                # 🔜 (Phase 6)
-│       │   ├── test_runner.py         # 🔜 (Phase 6)
-│       │   ├── security.py            # 🔜 (Phase 6)
-│       │   ├── formatter.py           # 🔜 (Phase 8)
-│       │   ├── diff.py                # 🔜 (Phase 8)
-│       │   └── status.py              # 🔜 (Phase 8)
+│       │   ├── codegen.py             # ✅ (Phase 4)
+│       │   ├── refactor.py            # ✅ (Phase 4)
+│       │   ├── scaffold.py            # ✅ (Phase 4)
+│       │   ├── search.py              # ✅ (Phase 5) — toolkit-injectable + LLM fallback
+│       │   ├── summary.py             # ✅ (Phase 5)
+│       │   ├── compare.py             # ✅ (Phase 5)
+│       │   ├── file_explorer.py       # ✅ (Phase 3)
+│       │   ├── dependency.py          # ✅ (Phase 3)
+│       │   ├── context.py             # ✅ (Phase 3)
+│       │   ├── lint.py                # ✅ (Phase 6)
+│       │   ├── test_runner.py         # ✅ (Phase 6)
+│       │   ├── security.py            # ✅ (Phase 6)
+│       │   ├── formatter.py           # ✅ (Phase 8)
+│       │   ├── diff.py                # ✅ (Phase 8) — difflib-deterministic; LLM only narrates
+│       │   └── status.py              # ✅ (Phase 8) — counts from state, LLM narrates
 │       │
 │       ├── mcp_servers/               # MCP server implementations  ✅ all scaffolded
 │       │   ├── filesystem/            # ✅ read/write/list/search
@@ -153,10 +159,10 @@ skellington/
 │       ├── ui/
 │       │   ├── cli.py                 # ✅ Rich/Typer CLI with Halloween theming
 │       │   └── web/
-│       │       ├── app.py             # ✅ FastAPI + WebSocket streaming
+│       │       ├── app.py             # ✅ FastAPI + WebSocket streaming (Phase 7)
 │       │       ├── static/
 │       │       └── templates/
-│       │           └── index.html     # ✅ dark-mode Halloween UI
+│       │           └── index.html     # ✅ dark-mode UI + live event timeline (Phase 7)
 │       │
 │       └── utils/
 │           ├── json_utils.py          # ✅ extract_json() — 4-strategy LLM JSON parser
@@ -166,15 +172,40 @@ skellington/
 ├── tests/
 │   ├── test_agents/
 │   │   ├── test_jack.py               # ✅
-│   │   └── test_jack_phase2.py        # ✅ planner/router/full orchestration flow
+│   │   ├── test_jack_phase2.py        # ✅ planner/router/full orchestration flow
+│   │   ├── test_zero.py               # ✅ Phase 3: navigation flow + orthodox MCP smoke test
+│   │   ├── test_sally.py              # ✅ Phase 4: all three intent paths + MCP smoke test
+│   │   ├── test_oogie.py              # ✅ Phase 5: research + compare + LLM-fallback paths
+│   │   ├── test_validators.py         # ✅ Phase 6: each validator + consensus + failure isolation
+│   │   └── test_mayor.py              # ✅ Phase 8: digest + diff + format + multi-format output
 │   ├── test_subagents/
-│   │   └── test_parallel.py           # ✅ parallel execution + exception isolation
+│   │   ├── test_parallel.py           # ✅ parallel execution + exception isolation
+│   │   ├── test_file_explorer.py      # ✅ Phase 3
+│   │   ├── test_dependency.py         # ✅ Phase 3
+│   │   ├── test_context.py            # ✅ Phase 3
+│   │   ├── test_codegen.py            # ✅ Phase 4
+│   │   ├── test_scaffold.py           # ✅ Phase 4
+│   │   ├── test_refactor.py           # ✅ Phase 4
+│   │   ├── test_search.py             # ✅ Phase 5: toolkit + LLM fallback paths
+│   │   ├── test_summary.py            # ✅ Phase 5
+│   │   ├── test_compare.py            # ✅ Phase 5
+│   │   ├── test_lint.py               # ✅ Phase 6
+│   │   ├── test_test_runner.py        # ✅ Phase 6
+│   │   ├── test_security.py           # ✅ Phase 6
+│   │   ├── test_formatter.py          # ✅ Phase 8
+│   │   ├── test_diff.py               # ✅ Phase 8: difflib determinism + no-change short-circuit
+│   │   └── test_status.py             # ✅ Phase 8: counts from state, empty-workflow fast path
 │   ├── test_core/
 │   │   ├── test_types.py              # ✅
 │   │   ├── test_config.py             # ✅
-│   │   └── test_json_utils.py         # ✅ all 8 extraction strategies tested
+│   │   ├── test_json_utils.py         # ✅ all 8 extraction strategies tested
+│   │   └── test_events.py             # ✅ Phase 7: Orchestrator event bus + Jack emit wiring
+│   ├── test_ui/
+│   │   └── test_websocket.py          # ✅ Phase 7: /ws/run streams events to the client
 │   └── test_mcp_servers/
-│       └── test_filesystem.py         # ✅
+│       ├── test_filesystem.py         # ✅
+│       ├── test_filesystem_client.py  # ✅ stdio MCP client
+│       └── test_filesystem_tools.py   # ✅ pure tool functions + access gating
 │
 └── docs/
     ├── architecture.md
@@ -247,29 +278,49 @@ OLLAMA_BASE_URL=http://localhost:11434
 - `utils/json_utils.py` — `extract_json()`: 4-strategy LLM JSON parser (direct → ```json fence → any fence → balanced brace scan)
 - **Key fix:** `Orchestrator` injects `self` into Jack so `delegate()` reaches real specialist agents
 
-### 🔜 Phase 3: Zero + Filesystem MCP
-- Connect `zero.py` to `mcp_servers/filesystem/` (already implemented, needs wiring)
-- Implement `FileExplorerSubagent`, `DependencySubagent`, `ContextSubagent`
-- First live codebase navigation: `skellington "explore this repo and summarize its structure"`
+### ✅ Phase 3: Zero + Filesystem MCP — *complete*
+- `agents/zero.py` wired to `mcp_servers/filesystem/` (both direct `tools.py` and stdio `MCPFilesystemToolkit`)
+- `FileExplorerSubagent`, `DependencySubagent`, `ContextSubagent` — all live with `fs=None` injection
+- Navigation metadata published to `state.metadata["navigation"]` for downstream agents
 
-### 🔜 Phase 4: Sally the Builder
-- Wire `CodeGenSubagent` → filesystem MCP to actually write files
-- Test: `skellington "create a Python CLI that counts words in a file"`
+### ✅ Phase 4: Sally the Builder — *complete*
+- `agents/sally.py` with keyword-heuristic intent routing: `codegen` / `scaffold` / `refactor`
+- `CodeGenSubagent`, `ScaffoldSubagent`, `RefactorSubagent` — pure structured-output; Sally owns all filesystem writes
+- Works against both the in-process filesystem toolkit and the orthodox stdio MCP client
+- Build metadata published to `state.metadata["builds"]`
+- Side-quest fix: `NoDecode` + `field_validator` on `FILESYSTEM_ALLOWED_PATHS` so comma-delimited env values work
 
-### 🔜 Phase 5: Oogie + Web Search
-- Get a Brave or Tavily API key, test `mcp_servers/websearch/` standalone
-- Build `SearchSubagent` → `SummarySubagent` → `CompareSubagent` RAG pipeline
+### ✅ Phase 5: Oogie + Web Search — *complete*
+- `agents/oogie.py` with intent routing: `research` (default) vs `compare` (keyword: `vs`, `versus`, `compare`, `pros and cons`, ...)
+- `SearchSubagent` accepts a `search=` toolkit (default: `mcp_servers/websearch/tools.py` → Brave then Tavily). Toolkit failure (no API key, network error) silently falls back to LLM-imagined results so the pipeline always runs
+- `SummarySubagent` distills the top N hits in sequence; `CompareSubagent` runs only when intent is `compare` and at least 2 items are extractable from `task.context['items']` or by splitting on `vs`/`versus`
+- Research findings published to `state.metadata["research"]` for downstream agents (Mayor) to consume
+- `mcp_servers/websearch/server.py` refactored into a thin stdio adapter over `tools.py` (mirrors the filesystem split)
+- 🔜 **Next:** wire `fetch_url` into the pipeline so Oogie summarizes full page content, not just snippets; add an orthodox MCP client (`websearch/client.py`) like `MCPFilesystemToolkit`
 
-### 🔜 Phase 6: Multi-Agent Consensus (Lock/Shock/Barrel)
-- Wire `ValidatorCoordinator` to `code_exec` MCP for real pytest runs
-- Study the parallel voting pattern in `validators.py`
+### ✅ Phase 6: Multi-Agent Consensus (Lock/Shock/Barrel) — *complete*
+- `Lock` → `LintSubagent`, `Shock` → `TestSubagent`, `Barrel` → `SecuritySubagent` — each validator is thin, subagent does the analysis
+- Each `run()` produces a `ValidationVerdict` packed in `AgentResponse.metadata["verdict"]`
+- `ValidatorCoordinator.validate()` runs all three in parallel via `run_subagents_parallel`; majority rules (2/3 = pass)
+- Exception isolation: a broken validator becomes a failed verdict — the panel keeps voting
+- Consensus published to `state.metadata["validation"]`
+- 🔜 Next: wire `TestSubagent`/`Shock` to the `code_exec` MCP server for real pytest runs
 
-### 🔜 Phase 7: Streaming Web UI
-- Enhance the WebSocket handler in `ui/web/app.py` with per-step agent updates
-- Show which agent is active in the dark-mode UI
+### ✅ Phase 7: Streaming Web UI — *complete*
+- `Orchestrator` takes an `on_event: EventCallback` and exposes `emit(type, *, agent, message, **data)` — callback errors are swallowed so a broken UI never crashes the workflow
+- Event vocabulary: `workflow.start/complete`, `plan.created/failed`, `route.decided/failed`, `agent.start/complete/fail`, `synthesis.start`, `result.final`
+- Jack threads `_emit` through every stage of his pipeline (plan → route → delegate → synthesize) so every subtask transition appears on the wire
+- `/ws/run` passes `on_event=websocket.send_json` — every orchestrator event streams to the browser as JSON, no polling
+- Dark-mode frontend renders a two-pane UI: live event timeline on the left, final synthesized answer on the right. Agent badges light up orange (active) / green (done) / red (failed) as events arrive
+- Pattern note: sync and async callbacks both work — `emit()` awaits whatever the callback returns. Tests use plain `list.append` sinks; the UI uses the async `websocket.send_json`
 
-### 🔜 Phase 8: Mayor + Reporting
-- Wire `FormatSubagent`, `DiffSubagent`, `StatusSubagent` to the full workflow
+### ✅ Phase 8: Mayor + Reporting — *complete*
+- `agents/mayor.py` collects findings from `state.metadata` (navigation/builds/research/validation) and weaves them into one digest
+- `StatusSubagent` — counts come from the workflow state itself (deterministic); LLM only writes the narrative + next-steps. Empty workflow short-circuits without a single LLM call
+- `DiffSubagent` — unified-diff text comes from `difflib`, not the LLM (LLMs hallucinate diffs). Identical before/after short-circuits. LLM only narrates the change in one sentence
+- `FormatSubagent` — `extract_json` + sensible fallbacks; respects `task.context['format']` (markdown/html/json/cli)
+- Mayor publishes its rendered report to `state.metadata["reports"]` so the web UI can re-render without re-running the LLM
+- Pattern note: each subagent uses the LLM for *judgement* (narrative, summary) and pure-Python for *facts* (counts, diff text). Cuts hallucination surface area dramatically
 
 ---
 

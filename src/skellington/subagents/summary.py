@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from skellington.core.subagent import BaseSubAgent
 from skellington.core.types import AgentName
+from skellington.utils.json_utils import extract_json
 
 
 class Summary(BaseModel):
@@ -30,18 +31,27 @@ class SummarySubagent(BaseSubAgent[Summary]):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an expert summarizer. Extract the most important information
-from any text and present it clearly.
-Respond with JSON: {"title": str, "key_points": [str], "full_summary": str,
-"word_count_original": int, "word_count_summary": int}"""
+        return """You are an expert summarizer. Extract the most important
+information from any text and present it clearly.
+
+Respond with ONLY a JSON object — no prose, no fences:
+{"title": str, "key_points": [str], "full_summary": str,
+ "word_count_original": int, "word_count_summary": int}"""
 
     async def run(self, content: str, max_points: int = 5) -> Summary:
-        """Summarize the given content."""
+        """Summarize ``content`` into ``max_points`` key points."""
         response = await self._call_llm(
             f"Summarize this content (max {max_points} key points):\n\n{content}",
             temperature=0.3,
         )
-        import json
-
-        data = json.loads(response)
+        data = extract_json(response)
+        original_words = len(content.split())
+        data.setdefault("title", "Summary")
+        data.setdefault("key_points", [])
+        data.setdefault("full_summary", "")
+        data.setdefault("word_count_original", original_words)
+        data.setdefault(
+            "word_count_summary",
+            len(str(data.get("full_summary", "")).split()),
+        )
         return Summary(**data)

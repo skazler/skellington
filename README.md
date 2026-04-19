@@ -71,7 +71,7 @@ Jack.run()                        ✅ live
   ├─ Orchestrator.delegate(step, agent) × N
   │    ├─ Zero    ✅ Phase 3      (file explorer / dependency / context subagents)
   │    ├─ Sally   ✅ Phase 4      (codegen / scaffold / refactor subagents)
-  │    ├─ Oogie   🔜 Phase 5      (currently: direct LLM stub)
+  │    ├─ Oogie   ✅ Phase 5      (search → summary → compare; Brave/Tavily or LLM fallback)
   │    └─ Mayor   🔜 Phase 8      (currently: direct LLM stub)
   │
   ├─ ValidatorCoordinator         ✅ Phase 6 — parallel multi-agent consensus
@@ -124,7 +124,7 @@ skellington/
 │       ├── agents/                    # Main character agents
 │       │   ├── jack.py                # ✅ Orchestrator — plan → route → delegate → synthesize
 │       │   ├── sally.py               # ✅ Builder (Phase 4)
-│       │   ├── oogie.py               # 🔜 Researcher (Phase 5)
+│       │   ├── oogie.py               # ✅ Researcher (Phase 5)
 │       │   ├── zero.py                # ✅ Navigator (Phase 3)
 │       │   ├── validators.py          # ✅ Lock/Shock/Barrel + ValidatorCoordinator (Phase 6)
 │       │   └── mayor.py               # 🔜 Reporter (Phase 8)
@@ -135,9 +135,9 @@ skellington/
 │       │   ├── codegen.py             # ✅ (Phase 4)
 │       │   ├── refactor.py            # ✅ (Phase 4)
 │       │   ├── scaffold.py            # ✅ (Phase 4)
-│       │   ├── search.py              # 🔜 (Phase 5)
-│       │   ├── summary.py             # 🔜 (Phase 5)
-│       │   ├── compare.py             # 🔜 (Phase 5)
+│       │   ├── search.py              # ✅ (Phase 5) — toolkit-injectable + LLM fallback
+│       │   ├── summary.py             # ✅ (Phase 5)
+│       │   ├── compare.py             # ✅ (Phase 5)
 │       │   ├── file_explorer.py       # ✅ (Phase 3)
 │       │   ├── dependency.py          # ✅ (Phase 3)
 │       │   ├── context.py             # ✅ (Phase 3)
@@ -175,6 +175,7 @@ skellington/
 │   │   ├── test_jack_phase2.py        # ✅ planner/router/full orchestration flow
 │   │   ├── test_zero.py               # ✅ Phase 3: navigation flow + orthodox MCP smoke test
 │   │   ├── test_sally.py              # ✅ Phase 4: all three intent paths + MCP smoke test
+│   │   ├── test_oogie.py              # ✅ Phase 5: research + compare + LLM-fallback paths
 │   │   └── test_validators.py         # ✅ Phase 6: each validator + consensus + failure isolation
 │   ├── test_subagents/
 │   │   ├── test_parallel.py           # ✅ parallel execution + exception isolation
@@ -184,6 +185,9 @@ skellington/
 │   │   ├── test_codegen.py            # ✅ Phase 4
 │   │   ├── test_scaffold.py           # ✅ Phase 4
 │   │   ├── test_refactor.py           # ✅ Phase 4
+│   │   ├── test_search.py             # ✅ Phase 5: toolkit + LLM fallback paths
+│   │   ├── test_summary.py            # ✅ Phase 5
+│   │   ├── test_compare.py            # ✅ Phase 5
 │   │   ├── test_lint.py               # ✅ Phase 6
 │   │   ├── test_test_runner.py        # ✅ Phase 6
 │   │   └── test_security.py           # ✅ Phase 6
@@ -279,9 +283,13 @@ OLLAMA_BASE_URL=http://localhost:11434
 - Build metadata published to `state.metadata["builds"]`
 - Side-quest fix: `NoDecode` + `field_validator` on `FILESYSTEM_ALLOWED_PATHS` so comma-delimited env values work
 
-### 🔜 Phase 5: Oogie + Web Search
-- Get a Brave or Tavily API key, test `mcp_servers/websearch/` standalone
-- Build `SearchSubagent` → `SummarySubagent` → `CompareSubagent` RAG pipeline
+### ✅ Phase 5: Oogie + Web Search — *complete*
+- `agents/oogie.py` with intent routing: `research` (default) vs `compare` (keyword: `vs`, `versus`, `compare`, `pros and cons`, ...)
+- `SearchSubagent` accepts a `search=` toolkit (default: `mcp_servers/websearch/tools.py` → Brave then Tavily). Toolkit failure (no API key, network error) silently falls back to LLM-imagined results so the pipeline always runs
+- `SummarySubagent` distills the top N hits in sequence; `CompareSubagent` runs only when intent is `compare` and at least 2 items are extractable from `task.context['items']` or by splitting on `vs`/`versus`
+- Research findings published to `state.metadata["research"]` for downstream agents (Mayor) to consume
+- `mcp_servers/websearch/server.py` refactored into a thin stdio adapter over `tools.py` (mirrors the filesystem split)
+- 🔜 **Next:** wire `fetch_url` into the pipeline so Oogie summarizes full page content, not just snippets; add an orthodox MCP client (`websearch/client.py`) like `MCPFilesystemToolkit`
 
 ### ✅ Phase 6: Multi-Agent Consensus (Lock/Shock/Barrel) — *complete*
 - `Lock` → `LintSubagent`, `Shock` → `TestSubagent`, `Barrel` → `SecuritySubagent` — each validator is thin, subagent does the analysis

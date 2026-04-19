@@ -7,11 +7,13 @@ Settings are loaded from environment variables and .env files.
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from skellington.core.types import LLMProvider
 
@@ -87,9 +89,22 @@ class Settings(BaseSettings):
     # MCP Servers
     # ------------------------------------------------------------------
     code_exec_timeout: int = Field(default=30, alias="CODE_EXEC_TIMEOUT")
-    filesystem_allowed_paths: list[str] = Field(
+    # NoDecode stops pydantic-settings from trying to JSON-parse the env value
+    # before our validator runs, so we can accept a comma-delimited string.
+    filesystem_allowed_paths: Annotated[list[str], NoDecode] = Field(
         default=["./", "~/projects"], alias="FILESYSTEM_ALLOWED_PATHS"
     )
+
+    @field_validator("filesystem_allowed_paths", mode="before")
+    @classmethod
+    def _parse_allowed_paths(cls, v: object) -> object:
+        """Accept either a JSON array (['a','b']) or a comma-delimited string (a,b)."""
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        if s.startswith("["):
+            return json.loads(s)
+        return [p.strip() for p in s.split(",") if p.strip()]
 
     def get_model_for_agent(self, agent_name: str) -> str:
         """Return the configured model for a specific agent, falling back to default."""

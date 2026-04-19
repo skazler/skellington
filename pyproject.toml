@@ -80,6 +80,7 @@ local = [
 
 [project.scripts]
 skellington = "skellington.main:app"
+skel = "skellington.main:app"
 
 [project.urls]
 Homepage = "https://github.com/skazler/skellington"

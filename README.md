@@ -72,7 +72,7 @@ Jack.run()                        ✅ live
   │    ├─ Zero    ✅ Phase 3      (file explorer / dependency / context subagents)
   │    ├─ Sally   ✅ Phase 4      (codegen / scaffold / refactor subagents)
   │    ├─ Oogie   ✅ Phase 5      (search → summary → compare; Brave/Tavily or LLM fallback)
-  │    └─ Mayor   🔜 Phase 8      (currently: direct LLM stub)
+  │    └─ Mayor   ✅ Phase 8      (status → optional diff → format; reads state.metadata)
   │
   ├─ ValidatorCoordinator         ✅ Phase 6 — parallel multi-agent consensus
   │    ├─ Lock   → LintSubagent
@@ -127,7 +127,7 @@ skellington/
 │       │   ├── oogie.py               # ✅ Researcher (Phase 5)
 │       │   ├── zero.py                # ✅ Navigator (Phase 3)
 │       │   ├── validators.py          # ✅ Lock/Shock/Barrel + ValidatorCoordinator (Phase 6)
-│       │   └── mayor.py               # 🔜 Reporter (Phase 8)
+│       │   └── mayor.py               # ✅ Reporter (Phase 8)
 │       │
 │       ├── subagents/                 # Specialized subagents
 │       │   ├── planner.py             # ✅ Plan decomposition with JSON fallback
@@ -144,9 +144,9 @@ skellington/
 │       │   ├── lint.py                # ✅ (Phase 6)
 │       │   ├── test_runner.py         # ✅ (Phase 6)
 │       │   ├── security.py            # ✅ (Phase 6)
-│       │   ├── formatter.py           # 🔜 (Phase 8)
-│       │   ├── diff.py                # 🔜 (Phase 8)
-│       │   └── status.py              # 🔜 (Phase 8)
+│       │   ├── formatter.py           # ✅ (Phase 8)
+│       │   ├── diff.py                # ✅ (Phase 8) — difflib-deterministic; LLM only narrates
+│       │   └── status.py              # ✅ (Phase 8) — counts from state, LLM narrates
 │       │
 │       ├── mcp_servers/               # MCP server implementations  ✅ all scaffolded
 │       │   ├── filesystem/            # ✅ read/write/list/search
@@ -176,7 +176,8 @@ skellington/
 │   │   ├── test_zero.py               # ✅ Phase 3: navigation flow + orthodox MCP smoke test
 │   │   ├── test_sally.py              # ✅ Phase 4: all three intent paths + MCP smoke test
 │   │   ├── test_oogie.py              # ✅ Phase 5: research + compare + LLM-fallback paths
-│   │   └── test_validators.py         # ✅ Phase 6: each validator + consensus + failure isolation
+│   │   ├── test_validators.py         # ✅ Phase 6: each validator + consensus + failure isolation
+│   │   └── test_mayor.py              # ✅ Phase 8: digest + diff + format + multi-format output
 │   ├── test_subagents/
 │   │   ├── test_parallel.py           # ✅ parallel execution + exception isolation
 │   │   ├── test_file_explorer.py      # ✅ Phase 3
@@ -190,7 +191,10 @@ skellington/
 │   │   ├── test_compare.py            # ✅ Phase 5
 │   │   ├── test_lint.py               # ✅ Phase 6
 │   │   ├── test_test_runner.py        # ✅ Phase 6
-│   │   └── test_security.py           # ✅ Phase 6
+│   │   ├── test_security.py           # ✅ Phase 6
+│   │   ├── test_formatter.py          # ✅ Phase 8
+│   │   ├── test_diff.py               # ✅ Phase 8: difflib determinism + no-change short-circuit
+│   │   └── test_status.py             # ✅ Phase 8: counts from state, empty-workflow fast path
 │   ├── test_core/
 │   │   ├── test_types.py              # ✅
 │   │   ├── test_config.py             # ✅
@@ -303,8 +307,13 @@ OLLAMA_BASE_URL=http://localhost:11434
 - Enhance the WebSocket handler in `ui/web/app.py` with per-step agent updates
 - Show which agent is active in the dark-mode UI
 
-### 🔜 Phase 8: Mayor + Reporting
-- Wire `FormatSubagent`, `DiffSubagent`, `StatusSubagent` to the full workflow
+### ✅ Phase 8: Mayor + Reporting — *complete*
+- `agents/mayor.py` collects findings from `state.metadata` (navigation/builds/research/validation) and weaves them into one digest
+- `StatusSubagent` — counts come from the workflow state itself (deterministic); LLM only writes the narrative + next-steps. Empty workflow short-circuits without a single LLM call
+- `DiffSubagent` — unified-diff text comes from `difflib`, not the LLM (LLMs hallucinate diffs). Identical before/after short-circuits. LLM only narrates the change in one sentence
+- `FormatSubagent` — `extract_json` + sensible fallbacks; respects `task.context['format']` (markdown/html/json/cli)
+- Mayor publishes its rendered report to `state.metadata["reports"]` so the web UI can re-render without re-running the LLM
+- Pattern note: each subagent uses the LLM for *judgement* (narrative, summary) and pure-Python for *facts* (counts, diff text). Cuts hallucination surface area dramatically
 
 ---
 

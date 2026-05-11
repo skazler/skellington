@@ -32,6 +32,15 @@ from skellington.subagents.diff import DiffReport, DiffSubagent
 from skellington.subagents.formatter import FormattedOutput, FormatSubagent
 from skellington.subagents.status import StatusReport, StatusSubagent
 
+from skellington.agents.mayor.skills import (
+    CREATE_VISUALIZATIONS_SCHEMA,
+    FORMAT_REPORTS_SCHEMA,
+    GENERATE_DOCUMENTATION_SCHEMA,
+    create_visualizations,
+    format_reports,
+    generate_documentation,
+)
+
 
 class Mayor(BaseAgent):
     """The Mayor — two-faced reporter of Halloween/Christmas Town."""
@@ -39,6 +48,22 @@ class Mayor(BaseAgent):
     name = AgentName.MAYOR
     emoji = "🎭📊"
     description = "Reporter: result synthesis, formatting, status reporting"
+
+    def __init__(self, llm_client=None, provider=None):
+        super().__init__(llm_client=llm_client, provider=provider)
+
+        # Register skills
+        self.register_tool(
+            name="generate_documentation",
+            func=generate_documentation,
+            schema=GENERATE_DOCUMENTATION_SCHEMA,
+        )
+        self.register_tool(
+            name="create_visualizations",
+            func=create_visualizations,
+            schema=CREATE_VISUALIZATIONS_SCHEMA,
+        )
+        self.register_tool(name="format_reports", func=format_reports, schema=FORMAT_REPORTS_SCHEMA)
 
     @property
     def system_prompt(self) -> str:
@@ -51,6 +76,11 @@ You are the REPORTER agent. Your expertise:
 - Generating progress updates and status summaries
 - Creating diffs and changelogs showing what changed
 - Presenting both good news and bad news with equal clarity
+
+You have access to these skills:
+- generate_documentation: Create docstrings, READMEs, and API docs
+- create_visualizations: Generate charts and graphs from data
+- format_reports: Convert data to different formats (JSON, CSV, HTML, Markdown)
 
 You are the voice that users hear. Be clear, organized, and informative."""
 

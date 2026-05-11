@@ -36,6 +36,156 @@ from skellington.subagents.codegen import CodeGenSubagent, GeneratedCode
 from skellington.subagents.refactor import RefactoredCode, RefactorSubagent
 from skellington.subagents.scaffold import ScaffoldPlan, ScaffoldSubagent
 
+# ------------------------------------------------------------------
+# Skill Functions
+# ------------------------------------------------------------------
+
+async def generate_unit_tests(function_code: str, function_name: str) -> str:
+    """
+    Generate comprehensive unit tests for a Python function.
+    
+    Args:
+        function_code: The complete function code to test
+        function_name: Name of the function being tested
+        
+    Returns:
+        Generated test code as a string
+    """
+    try:
+        # Parse function signature to understand parameters
+        import ast
+        import inspect
+        
+        # Extract function parameters and types
+        tree = ast.parse(function_code)
+        func_def = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == function_name:
+                func_def = node
+                break
+        
+        if not func_def:
+            return f"Error: Could not find function '{function_name}' in provided code"
+        
+        # Extract parameters
+        params = []
+        for arg in func_def.args.args:
+            param_name = arg.arg
+            param_type = "Any"
+            if arg.annotation:
+                param_type = ast.unparse(arg.annotation)
+            params.append(f"{param_name}: {param_type}")
+        
+        # Generate test cases based on parameter types
+        test_cases = []
+        
+        # Basic functionality test
+        test_cases.append(f"""
+    def test_{function_name}_basic(self):
+        \"\"\"Test basic functionality of {function_name}.\"\"\"
+        # Arrange
+        {"\n        ".join([f"{p.split(':')[0]} = {get_test_value(p.split(':')[1].strip())}" for p in params])}
+        
+        # Act
+        result = {function_name}({", ".join([p.split(':')[0] for p in params])})
+        
+        # Assert
+        self.assertIsNotNone(result)  # Basic smoke test
+""")
+        
+        # Edge cases
+        if any('str' in p for p in params):
+            test_cases.append(f"""
+    def test_{function_name}_empty_string(self):
+        \"\"\"Test {function_name} with empty string inputs.\"\"\"
+        # Arrange
+        {"\n        ".join([f"{p.split(':')[0]} = {get_edge_value(p.split(':')[1].strip())}" for p in params])}
+        
+        # Act & Assert
+        with self.assertRaises(ValueError):
+            {function_name}({", ".join([p.split(':')[0] for p in params])})
+""")
+        
+        # Generate the complete test class
+        test_code = f'''import unittest
+from {function_name.split('_')[0]}_module import {function_name}
+
+class Test{function_name.title().replace('_', '')}(unittest.TestCase):
+    \"\"\"Unit tests for {function_name} function.\"\"\"
+    
+{"".join(test_cases)}
+    
+    def test_{function_name}_error_handling(self):
+        \"\"\"Test error handling in {function_name}.\"\"\"
+        # Arrange
+        {"\n        ".join([f"{p.split(':')[0]} = None" for p in params])}
+        
+        # Act & Assert
+        with self.assertRaises((TypeError, ValueError)):
+            {function_name}({", ".join([p.split(':')[0] for p in params])})
+
+if __name__ == '__main__':
+    unittest.main()
+'''
+        
+        return test_code
+        
+    except Exception as e:
+        return f"Error generating tests: {str(e)}"
+
+def get_test_value(param_type: str) -> str:
+    \"\"\"Get a test value based on parameter type.\"\"\"
+    if 'str' in param_type.lower():
+        return '"test_value"'
+    elif 'int' in param_type.lower():
+        return '42'
+    elif 'float' in param_type.lower():
+        return '3.14'
+    elif 'bool' in param_type.lower():
+        return 'True'
+    elif 'list' in param_type.lower():
+        return '[1, 2, 3]'
+    elif 'dict' in param_type.lower():
+        return '{"key": "value"}'
+    else:
+        return 'None'
+
+def get_edge_value(param_type: str) -> str:
+    \"\"\"Get an edge case value based on parameter type.\"\"\"
+    if 'str' in param_type.lower():
+        return '""'
+    elif 'int' in param_type.lower():
+        return '-1'
+    elif 'float' in param_type.lower():
+        return '0.0'
+    elif 'bool' in param_type.lower():
+        return 'False'
+    elif 'list' in param_type.lower():
+        return '[]'
+    elif 'dict' in param_type.lower():
+        return '{}'
+    else:
+        return 'None'
+
+# ------------------------------------------------------------------
+# Skill Schemas
+# ------------------------------------------------------------------
+
+GENERATE_UNIT_TESTS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "function_code": {
+            "type": "string",
+            "description": "The complete Python function code to generate tests for"
+        },
+        "function_name": {
+            "type": "string", 
+            "description": "Name of the function to test"
+        }
+    },
+    "required": ["function_code", "function_name"]
+}
+
 _SCAFFOLD_KEYWORDS = (
     "scaffold",
     "new project",
@@ -81,6 +231,13 @@ class Sally(BaseAgent):
     ) -> None:
         super().__init__(llm_client=llm_client, provider=provider)
         self._fs = fs or _default_fs
+        
+        # Register skills
+        self.register_tool(
+            name="generate_unit_tests",
+            func=generate_unit_tests,
+            schema=GENERATE_UNIT_TESTS_SCHEMA
+        )
 
     @property
     def system_prompt(self) -> str:
@@ -96,9 +253,13 @@ You are the BUILDER agent. Your expertise:
 
 You are meticulous and careful. You always think through edge cases.
 You produce complete, runnable code — never pseudocode or skeletons unless asked.
+
+You have access to these skills:
+- generate_unit_tests: Generate comprehensive unit tests for Python functions
+
 When given a task, you delegate to your subagents:
 - CodeGenSubagent: for writing new code
-- RefactorSubagent: for improving existing code
+- RefactorSubagent: for improving existing code  
 - ScaffoldSubagent: for project structure creation"""
 
     async def run(self, task: Task, state: WorkflowState) -> AgentResponse:

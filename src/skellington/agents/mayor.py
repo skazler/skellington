@@ -32,6 +32,361 @@ from skellington.subagents.diff import DiffReport, DiffSubagent
 from skellington.subagents.formatter import FormattedOutput, FormatSubagent
 from skellington.subagents.status import StatusReport, StatusSubagent
 
+# ------------------------------------------------------------------
+# Skill Functions
+# ------------------------------------------------------------------
+
+
+async def generate_documentation(code: str, doc_type: str = "docstring") -> str:
+    """
+    Generate documentation for Python code.
+
+    Args:
+        code: Python code to document
+        doc_type: Type of documentation ("docstring", "readme", "api")
+
+    Returns:
+        Generated documentation
+    """
+    try:
+        import ast
+        import re
+
+        tree = ast.parse(code)
+
+        if doc_type == "docstring":
+            # Generate docstrings for functions and classes
+            docs = []
+
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                    name = node.name
+                    docstring = ast.get_docstring(node)
+
+                    if not docstring:
+                        # Generate basic docstring
+                        params = []
+                        returns = "None"
+
+                        if isinstance(node, ast.FunctionDef):
+                            # Extract parameters
+                            for arg in node.args.args:
+                                param_name = arg.arg
+                                param_type = "Any"
+                                if arg.annotation:
+                                    param_type = ast.unparse(arg.annotation)
+                                params.append(f"{param_name}: {param_type}")
+
+                            # Try to infer return type
+                            if node.returns:
+                                returns = ast.unparse(node.returns)
+
+                        param_str = ", ".join(params) if params else ""
+
+                        docstring = f'''\"\"\"{name.title().replace('_', ' ')}.
+
+Args:
+    {param_str}
+
+Returns:
+    {returns}
+\"\"\"'''
+
+                        docs.append(f"Add to {name}:\n{docstring}")
+
+            if docs:
+                return "📚 Suggested Docstrings:\n\n" + "\n\n".join(docs)
+            else:
+                return "✅ All functions and classes already have docstrings!"
+
+        elif doc_type == "readme":
+            # Generate a basic README
+            functions = []
+            classes = []
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    functions.append(node.name)
+                elif isinstance(node, ast.ClassDef):
+                    classes.append(node.name)
+
+            readme = f"""# Code Documentation
+
+## Classes
+{chr(10).join(f"- `{cls}`" for cls in classes)}
+
+## Functions  
+{chr(10).join(f"- `{func}`" for func in functions)}
+
+## Usage
+```python
+# Import and use the code here
+```
+"""
+            return readme
+
+        elif doc_type == "api":
+            # Generate API documentation
+            api_docs = []
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    name = node.name
+                    params = []
+
+                    for arg in node.args.args:
+                        param_name = arg.arg
+                        param_type = "Any"
+                        if arg.annotation:
+                            param_type = ast.unparse(arg.annotation)
+                        params.append(f"{param_name}: {param_type}")
+
+                    returns = "None"
+                    if node.returns:
+                        returns = ast.unparse(node.returns)
+
+                    api_docs.append(f"""### `{name}({', '.join(params)})`
+
+**Returns:** `{returns}`
+
+{ast.get_docstring(node) or "No description available."}
+""")
+
+            return f"# API Documentation\n\n{chr(10).join(api_docs)}"
+
+        else:
+            return f"❓ Unsupported documentation type: {doc_type}"
+
+    except Exception as e:
+        return f"Error generating documentation: {str(e)}"
+
+
+async def create_visualizations(data: str, chart_type: str = "bar") -> str:
+    """
+    Create visualizations from data.
+
+    Args:
+        data: Data to visualize (JSON, CSV, or structured text)
+        chart_type: Type of chart ("bar", "line", "pie", "histogram")
+
+    Returns:
+        ASCII art visualization or description
+    """
+    try:
+        import json
+
+        # Try to parse as JSON first
+        try:
+            parsed_data = json.loads(data)
+        except json.JSONDecodeError:
+            # Try to parse as simple key-value pairs
+            parsed_data = {}
+            for line in data.strip().split("\n"):
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    try:
+                        parsed_data[key.strip()] = float(value.strip())
+                    except ValueError:
+                        parsed_data[key.strip()] = value.strip()
+
+        if not isinstance(parsed_data, dict):
+            return "❌ Data must be a dictionary/object with numeric values for visualization"
+
+        # Filter to numeric values only
+        numeric_data = {k: v for k, v in parsed_data.items() if isinstance(v, (int, float))}
+
+        if not numeric_data:
+            return "❌ No numeric data found for visualization"
+
+        if chart_type == "bar":
+            # Create ASCII bar chart
+            max_value = max(numeric_data.values())
+            max_label_len = max(len(str(k)) for k in numeric_data.keys())
+
+            chart = "📊 Bar Chart\n\n"
+            for key, value in numeric_data.items():
+                bar_length = int((value / max_value) * 20) if max_value > 0 else 0
+                bar = "█" * bar_length
+                chart += f"{str(key):<{max_label_len}} | {bar} {value}\n"
+
+            return chart
+
+        elif chart_type == "pie":
+            # Simple text-based pie chart representation
+            total = sum(numeric_data.values())
+            chart = "🥧 Pie Chart Breakdown\n\n"
+
+            for key, value in numeric_data.items():
+                percentage = (value / total * 100) if total > 0 else 0
+                bars = int(percentage / 5)  # 20 bars = 100%
+                bar_chart = "█" * bars
+                chart += f"{key}: {bar_chart} {percentage:.1f}%\n"
+
+            return chart
+
+        elif chart_type == "line":
+            # Simple line chart
+            values = list(numeric_data.values())
+            labels = list(numeric_data.keys())
+
+            chart = "📈 Line Chart\n\n"
+            max_val = max(values) if values else 0
+            min_val = min(values) if values else 0
+            range_val = max_val - min_val if max_val != min_val else 1
+
+            for i, (label, value) in enumerate(zip(labels, values)):
+                # Normalize to 0-10 scale
+                normalized = int(((value - min_val) / range_val) * 10) if range_val > 0 else 0
+                line = " " * normalized + "●"
+                chart += f"{label}: {line} {value}\n"
+
+            return chart
+
+        else:
+            return f"❓ Unsupported chart type: {chart_type}. Try 'bar', 'pie', or 'line'."
+
+    except Exception as e:
+        return f"Error creating visualization: {str(e)}"
+
+
+async def format_reports(data: str, output_format: str = "markdown") -> str:
+    """
+    Convert data to different output formats.
+
+    Args:
+        data: Data to format
+        output_format: Target format ("markdown", "json", "csv", "html")
+
+    Returns:
+        Formatted data
+    """
+    try:
+        import json
+        import csv
+        import io
+
+        # Try to parse input data
+        try:
+            parsed_data = json.loads(data)
+        except json.JSONDecodeError:
+            # Assume it's text data, try to structure it
+            parsed_data = {"content": data}
+
+        if output_format == "json":
+            return json.dumps(parsed_data, indent=2)
+
+        elif output_format == "markdown":
+            if isinstance(parsed_data, dict):
+                md = "# Formatted Report\n\n"
+                for key, value in parsed_data.items():
+                    if isinstance(value, (list, dict)):
+                        md += f"## {key.title()}\n\n"
+                        if isinstance(value, list):
+                            for item in value:
+                                md += f"- {item}\n"
+                        else:
+                            for k, v in value.items():
+                                md += f"- **{k}**: {v}\n"
+                    else:
+                        md += f"## {key.title()}\n\n{value}\n\n"
+                return md
+            else:
+                return f"# Report\n\n{parsed_data}"
+
+        elif output_format == "csv":
+            if isinstance(parsed_data, list) and parsed_data and isinstance(parsed_data[0], dict):
+                # List of dictionaries
+                output = io.StringIO()
+                writer = csv.DictWriter(output, fieldnames=parsed_data[0].keys())
+                writer.writeheader()
+                writer.writerows(parsed_data)
+                return output.getvalue()
+            elif isinstance(parsed_data, dict):
+                # Single dictionary
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["Key", "Value"])
+                for key, value in parsed_data.items():
+                    writer.writerow([key, str(value)])
+                return output.getvalue()
+            else:
+                return f"Key,Value\\nContent,{parsed_data}"
+
+        elif output_format == "html":
+            html = "<!DOCTYPE html><html><head><title>Report</title></head><body>"
+            html += "<h1>Formatted Report</h1>"
+
+            if isinstance(parsed_data, dict):
+                for key, value in parsed_data.items():
+                    html += f"<h2>{key.title()}</h2>"
+                    if isinstance(value, list):
+                        html += "<ul>"
+                        for item in value:
+                            html += f"<li>{item}</li>"
+                        html += "</ul>"
+                    else:
+                        html += f"<p>{value}</p>"
+            else:
+                html += f"<p>{parsed_data}</p>"
+
+            html += "</body></html>"
+            return html
+
+        else:
+            return (
+                f"❓ Unsupported format: {output_format}. Try 'markdown', 'json', 'csv', or 'html'."
+            )
+
+    except Exception as e:
+        return f"Error formatting report: {str(e)}"
+
+
+# ------------------------------------------------------------------
+# Skill Schemas
+# ------------------------------------------------------------------
+
+GENERATE_DOCUMENTATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "code": {"type": "string", "description": "Python code to generate documentation for"},
+        "doc_type": {
+            "type": "string",
+            "enum": ["docstring", "readme", "api"],
+            "description": "Type of documentation to generate",
+            "default": "docstring",
+        },
+    },
+    "required": ["code"],
+}
+
+CREATE_VISUALIZATIONS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "data": {"type": "string", "description": "Data to visualize (JSON or key-value pairs)"},
+        "chart_type": {
+            "type": "string",
+            "enum": ["bar", "line", "pie", "histogram"],
+            "description": "Type of chart to create",
+            "default": "bar",
+        },
+    },
+    "required": ["data"],
+}
+
+FORMAT_REPORTS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "data": {"type": "string", "description": "Data to format"},
+        "output_format": {
+            "type": "string",
+            "enum": ["markdown", "json", "csv", "html"],
+            "description": "Output format for the data",
+            "default": "markdown",
+        },
+    },
+    "required": ["data"],
+}
+
 
 class Mayor(BaseAgent):
     """The Mayor — two-faced reporter of Halloween/Christmas Town."""
@@ -39,6 +394,22 @@ class Mayor(BaseAgent):
     name = AgentName.MAYOR
     emoji = "🎭📊"
     description = "Reporter: result synthesis, formatting, status reporting"
+
+    def __init__(self, llm_client=None, provider=None):
+        super().__init__(llm_client=llm_client, provider=provider)
+
+        # Register skills
+        self.register_tool(
+            name="generate_documentation",
+            func=generate_documentation,
+            schema=GENERATE_DOCUMENTATION_SCHEMA,
+        )
+        self.register_tool(
+            name="create_visualizations",
+            func=create_visualizations,
+            schema=CREATE_VISUALIZATIONS_SCHEMA,
+        )
+        self.register_tool(name="format_reports", func=format_reports, schema=FORMAT_REPORTS_SCHEMA)
 
     @property
     def system_prompt(self) -> str:
@@ -51,6 +422,11 @@ You are the REPORTER agent. Your expertise:
 - Generating progress updates and status summaries
 - Creating diffs and changelogs showing what changed
 - Presenting both good news and bad news with equal clarity
+
+You have access to these skills:
+- generate_documentation: Create docstrings, READMEs, and API docs
+- create_visualizations: Generate charts and graphs from data
+- format_reports: Convert data to different formats (JSON, CSV, HTML, Markdown)
 
 You are the voice that users hear. Be clear, organized, and informative."""
 

@@ -36,6 +36,15 @@ from skellington.subagents.compare import Comparison, CompareSubagent
 from skellington.subagents.search import SearchResult, SearchSubagent
 from skellington.subagents.summary import Summary, SummarySubagent
 
+from skellington.agents.oogie.skills import (
+    ANALYZE_TRENDS_SCHEMA,
+    SUMMARIZE_FINDINGS_SCHEMA,
+    WEB_SEARCH_SCHEMA,
+    analyze_trends,
+    summarize_findings,
+    web_search,
+)
+
 _COMPARE_KEYWORDS = (
     "compare",
     " vs ",
@@ -73,6 +82,15 @@ class Oogie(BaseAgent):
         super().__init__(llm_client=llm_client, provider=provider)
         self._search = search or _default_search
 
+        # Register skills
+        self.register_tool(name="web_search", func=web_search, schema=WEB_SEARCH_SCHEMA)
+        self.register_tool(name="analyze_trends", func=analyze_trends, schema=ANALYZE_TRENDS_SCHEMA)
+        self.register_tool(
+            name="summarize_findings",
+            func=summarize_findings,
+            schema=SUMMARIZE_FINDINGS_SCHEMA,
+        )
+
     @property
     def system_prompt(self) -> str:
         return """You are Oogie Boogie — the boogeyman who's taken over Christmas research.
@@ -83,6 +101,11 @@ You are the RESEARCHER agent. Your expertise:
 - Reading and summarizing technical documentation
 - Comparing libraries, tools, and approaches
 - Synthesizing multiple sources into coherent research reports
+
+You have access to these skills:
+- web_search: Search the web for information on any topic
+- analyze_trends: Find patterns and trends in data or code
+- summarize_findings: Create concise summaries of research content
 
 You never make up facts. If you don't know, you search.
 You always cite your sources. You present findings clearly with evidence."""
@@ -140,9 +163,7 @@ You always cite your sources. You present findings clearly with evidence."""
                 self.log.warning("summary failed for hit", url=hit.get("url"), error=str(exc))
         return summaries
 
-    async def _maybe_compare(
-        self, intent: str, task: Task, query: str
-    ) -> Comparison | None:
+    async def _maybe_compare(self, intent: str, task: Task, query: str) -> Comparison | None:
         if intent != "compare":
             return None
         items = _extract_compare_items(task)
@@ -169,14 +190,11 @@ You always cite your sources. You present findings clearly with evidence."""
         comparison: Comparison | None,
     ) -> AgentResponse:
         sources_block = (
-            "\n".join(
-                f"- {r.get('title', '?')}: {r.get('url', '')}" for r in search_result.results
-            )
+            "\n".join(f"- {r.get('title', '?')}: {r.get('url', '')}" for r in search_result.results)
             or "(no sources found)"
         )
         summaries_block = (
-            "\n".join(f"- {s.title}: {s.full_summary[:200]}" for s in summaries)
-            or "(no summaries)"
+            "\n".join(f"- {s.title}: {s.full_summary[:200]}" for s in summaries) or "(no summaries)"
         )
         compare_block = (
             f"Comparison verdict: {comparison.recommendation}\nReasoning: {comparison.reasoning}"

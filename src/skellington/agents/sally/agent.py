@@ -1,19 +1,4 @@
-"""
-🧟‍♀️🎁 Sally Claus — The Builder
-
-"I sense there's something in the wind... that feels like code generation."
-
-Sally stitches together beautiful code from the finest threads of requirements.
-She builds, scaffolds, and refactors with careful, loving precision.
-
-Role: BUILDER
-- Code generation from requirements
-- Project scaffolding and templates
-- Refactoring existing code
-
-Subagents: CodeGenSubagent, RefactorSubagent, ScaffoldSubagent
-Toolkits: filesystem (via `mcp_servers.filesystem.tools` or `MCPFilesystemToolkit`)
-"""
+"""Sally Claus — The Builder Agent."""
 
 from __future__ import annotations
 
@@ -35,6 +20,15 @@ from skellington.mcp_servers.filesystem import tools as _default_fs
 from skellington.subagents.codegen import CodeGenSubagent, GeneratedCode
 from skellington.subagents.refactor import RefactoredCode, RefactorSubagent
 from skellington.subagents.scaffold import ScaffoldPlan, ScaffoldSubagent
+
+from skellington.agents.sally.skills import (
+    CHECK_CODE_STYLE_SCHEMA,
+    GENERATE_UNIT_TESTS_SCHEMA,
+    OPTIMIZE_IMPORTS_SCHEMA,
+    check_code_style,
+    generate_unit_tests,
+    optimize_imports,
+)
 
 _SCAFFOLD_KEYWORDS = (
     "scaffold",
@@ -82,6 +76,19 @@ class Sally(BaseAgent):
         super().__init__(llm_client=llm_client, provider=provider)
         self._fs = fs or _default_fs
 
+        # Register skills
+        self.register_tool(
+            name="generate_unit_tests",
+            func=generate_unit_tests,
+            schema=GENERATE_UNIT_TESTS_SCHEMA,
+        )
+        self.register_tool(
+            name="check_code_style", func=check_code_style, schema=CHECK_CODE_STYLE_SCHEMA
+        )
+        self.register_tool(
+            name="optimize_imports", func=optimize_imports, schema=OPTIMIZE_IMPORTS_SCHEMA
+        )
+
     @property
     def system_prompt(self) -> str:
         return """You are Sally Claus, a ragdoll who stitches Christmas gifts... but the gifts
@@ -96,9 +103,15 @@ You are the BUILDER agent. Your expertise:
 
 You are meticulous and careful. You always think through edge cases.
 You produce complete, runnable code — never pseudocode or skeletons unless asked.
+
+You have access to these skills:
+- generate_unit_tests: Generate comprehensive unit tests for Python functions
+- check_code_style: Analyze code for style issues and suggest improvements
+- optimize_imports: Clean up and organize import statements
+
 When given a task, you delegate to your subagents:
 - CodeGenSubagent: for writing new code
-- RefactorSubagent: for improving existing code
+- RefactorSubagent: for improving existing code  
 - ScaffoldSubagent: for project structure creation"""
 
     async def run(self, task: Task, state: WorkflowState) -> AgentResponse:
@@ -152,16 +165,14 @@ When given a task, you delegate to your subagents:
         project_root = Path(output_dir) / plan.project_name
         for rel_path, content in plan.files.items():
             # Guard against absolute paths or escape sequences from the LLM.
-            safe_rel = Path(rel_path.lstrip("/\\"))
+            safe_rel = Path(rel_path.lstrip("/\\\\"))
             target = project_root / safe_rel
             written.append(await self._fs.write_file(str(target), content))
         return written, f"Scaffolded '{plan.project_name}' with {len(written)} files"
 
     async def _build_refactor(self, task: Task, output_dir: str) -> tuple[list[str], str]:
         source_code, source_path = await self._resolve_refactor_source(task)
-        refactored: RefactoredCode = await RefactorSubagent(
-            llm_client=self._llm, fs=self._fs
-        ).run(
+        refactored: RefactoredCode = await RefactorSubagent(llm_client=self._llm, fs=self._fs).run(
             source_code,
             goals=task.context.get("goals") if task.context else None,
         )
@@ -196,58 +207,62 @@ When given a task, you delegate to your subagents:
         written: list[str],
         artifact_summary: str,
     ) -> AgentResponse:
-        files_block = "\n".join(f"- {p}" for p in written) or "(no files)"
-        prompt = (
-            f"You just completed a {intent} task:\n"
-            f"{task.description}\n\n"
-            f"Output directory: {output_dir}\n"
-            f"Artifact summary: {artifact_summary}\n\n"
-            f"Files written:\n{files_block}\n\n"
-            "Write a concise builder's report (~4-6 sentences) in Sally's thoughtful, "
-            "meticulous tone. Describe what was built and anything notable."
+        """Synthesize a final response for the user."""
+        msg = f"""
+        🏗️ **Building Complete**
+        
+        Intent: {intent}
+        Output Directory: {output_dir}
+        Files Written: {len(written)}
+        {artifact_summary}
+        
+        Written files:
+        """
+        for fpath in written:
+            msg += f"\\n- {fpath}"
+
+        return AgentResponse(
+            agent_name=self.name,
+            message=Message(role=MessageRole.ASSISTANT, content=msg),
+            success=True,
         )
-        messages = [Message(role=MessageRole.USER, content=prompt)]
-        response = await self.chat(messages)
-        response.task_id = task.id
-        response.metadata = {
-            **response.metadata,
-            "intent": intent,
-            "output_dir": output_dir,
-            "files_written": written,
-            "file_count": len(written),
-        }
-        return response
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------
+
+
+def _resolve_output_dir(task: Task) -> str:
+    """Resolve the output directory from task context."""
+    ctx = task.context or {}
+    if "output_dir" in ctx:
+        return str(ctx["output_dir"])
+    # Default to current working directory
+    return "."
 
 
 def _classify_intent(task: Task) -> str:
-    """Route to 'scaffold', 'refactor', or 'codegen' by keyword heuristic."""
-    text = f"{task.title}\n{task.description or ''}".lower()
-    if any(k in text for k in _SCAFFOLD_KEYWORDS):
+    """Classify whether task is codegen, scaffold, or refactor."""
+    desc = task.description.lower()
+    if any(keyword in desc for keyword in _SCAFFOLD_KEYWORDS):
         return "scaffold"
-    if any(k in text for k in _REFACTOR_KEYWORDS):
+    if any(keyword in desc for keyword in _REFACTOR_KEYWORDS):
         return "refactor"
     return "codegen"
 
 
-def _resolve_output_dir(task: Task) -> str:
-    """Where should Sally write? Task context wins, else cwd."""
-    if task.context and "path" in task.context:
-        return str(task.context["path"])
-    return "."
-
-
 def _suggested_filename(task: Task) -> str:
-    ctx = task.context or {}
-    if "filename" in ctx:
-        return str(ctx["filename"])
-    return "output.py"
+    """Suggest a filename based on the task."""
+    # Extract a word from the task description to use as filename
+    words = task.title.lower().split()
+    if words:
+        filename = "_".join(words[:3])  # Take first 3 words
+        return f"{filename}.py"
+    return "generated.py"
 
 
-def _slug(s: str) -> str:
-    """Filesystem-safe snake_case slug from a task title."""
-    return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+def _slug(text: str) -> str:
+    """Convert text to a slug suitable for directory names."""
+    slug = re.sub(r"[^a-z0-9]+", "_", text.lower())
+    return slug.strip("_")

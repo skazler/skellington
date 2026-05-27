@@ -32,3 +32,30 @@ def test_has_provider_false(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     s = Settings(_env_file=None)
     assert s.has_provider(LLMProvider.ANTHROPIC) is False
+
+
+def test_get_settings_warns_on_unknown_model(monkeypatch, capsys):
+    from skellington.core import config as config_module
+
+    monkeypatch.setenv("DEFAULT_LLM_MODEL", "totally-made-up-model-99")
+    config_module.get_settings.cache_clear()
+    try:
+        config_module.get_settings()
+        out = capsys.readouterr().out
+        assert "totally-made-up-model-99" in out
+        assert "not in registry" in out
+    finally:
+        config_module.get_settings.cache_clear()
+
+
+def test_get_settings_silent_on_known_model(monkeypatch, capsys):
+    from skellington.core import config as config_module
+
+    monkeypatch.setenv("DEFAULT_LLM_MODEL", "claude-opus-4-7")
+    config_module.get_settings.cache_clear()
+    try:
+        config_module.get_settings()
+        out = capsys.readouterr().out
+        assert "not in registry" not in out
+    finally:
+        config_module.get_settings.cache_clear()

@@ -203,12 +203,16 @@ class LLMConfig(BaseModel):
     """Configuration for an LLM call."""
 
     provider: LLMProvider = LLMProvider.ANTHROPIC
-    model: str = "claude-opus-4-5"
+    model: str = "claude-opus-4-7"
     max_tokens: int = 4096
     temperature: float = 0.7
     system_prompt: str | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
     stream: bool = False
+    # Opt-ins honored only when the model's ModelCard supports them.
+    response_format: Literal["text", "json"] = "text"
+    prefer_thinking: bool = False
+    thinking_budget_tokens: int = 4096
 
 
 class LLMResponse(BaseModel):

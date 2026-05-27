@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     default_llm_provider: LLMProvider = Field(
         default=LLMProvider.ANTHROPIC, alias="DEFAULT_LLM_PROVIDER"
     )
-    default_llm_model: str = Field(default="claude-opus-4-5", alias="DEFAULT_LLM_MODEL")
+    default_llm_model: str = Field(default="claude-opus-4-7", alias="DEFAULT_LLM_MODEL")
     max_tokens: int = Field(default=4096, alias="MAX_TOKENS")
 
     # Per-agent model overrides
@@ -129,4 +129,31 @@ def get_settings() -> Settings:
     Cached so the .env file is only parsed once. To reload (e.g. in tests),
     call get_settings.cache_clear() first.
     """
-    return Settings()
+    settings = Settings()
+    _warn_unknown_models(settings)
+    return settings
+
+
+def _warn_unknown_models(settings: Settings) -> None:
+    """Log a warning for any configured model id that isn't in the MODELS registry."""
+    # Imported lazily to avoid pulling models.py during module import (and to keep
+    # the dependency direction config -> models, never the reverse).
+    import structlog
+
+    from skellington.core.models import MODELS
+
+    log = structlog.get_logger(__name__)
+    configured = {"DEFAULT_LLM_MODEL": settings.default_llm_model}
+    for agent in ("jack", "sally", "oogie", "zero", "validators", "mayor"):
+        value = getattr(settings, f"{agent}_model", None)
+        if value:
+            configured[f"{agent.upper()}_MODEL"] = value
+
+    for env_var, model_id in configured.items():
+        if model_id not in MODELS:
+            log.warning(
+                "configured model not in registry — conservative fallback flags will apply",
+                env_var=env_var,
+                model_id=model_id,
+                known=sorted(MODELS),
+            )

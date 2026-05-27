@@ -169,11 +169,17 @@ skellington/
 │   │
 │   ├── agents/                 # Main agents
 │   │   ├── jack.py             # Orchestrator
-│   │   ├── sally.py            # Builder
-│   │   ├── oogie.py            # Researcher
 │   │   ├── zero.py             # Navigator
 │   │   ├── validators.py       # Lock/Shock/Barrel + ValidatorCoordinator
-│   │   └── mayor.py            # Reporter
+│   │   ├── sally/              # Builder package
+│   │   │   ├── agent.py        # Sally — codegen / scaffold / refactor
+│   │   │   └── skills/         # imports.py, styling.py, testing.py
+│   │   ├── oogie/              # Researcher package
+│   │   │   ├── agent.py        # Oogie — search / summary / compare
+│   │   │   └── skills/         # search.py, analysis.py, summarization.py
+│   │   └── mayor/              # Reporter package
+│   │       ├── agent.py        # Mayor — status / diff / format
+│   │       └── skills/         # documentation.py, visualization.py, formatting.py
 │   │
 │   ├── subagents/              # Specialized subagents
 │   │   ├── planner.py, router.py
@@ -229,6 +235,7 @@ pytest -k mayor               # one agent
 
 A few deliberate choices worth calling out:
 
+- **Skill-per-file modules** — specialist agents (Sally, Oogie, Mayor) live in packages where each registered tool gets its own file under `skills/`, exporting a `func` and a `SCHEMA`. The agent's `agent.py` stays focused on orchestration; adding a skill is a single new file plus one line in `skills/__init__.py`.
 - **Toolkit injection** — agents accept a `search=` / `fs=` kwarg that defaults to the in-process `tools.py`. Pass an orthodox MCP stdio client instead and nothing else changes. Tests pass mock toolkits the same way.
 - **LLM-for-judgement, Python-for-facts** — `DiffSubagent` uses `difflib` for the diff text; the LLM only narrates. `StatusSubagent` counts task statuses from `WorkflowState`; the LLM only writes the narrative. Cuts hallucination surface.
 - **Graceful degradation** — no API key? Oogie falls back to LLM-imagined search results so pipelines keep running in dev. Empty workflow? `StatusSubagent` short-circuits without an LLM call.

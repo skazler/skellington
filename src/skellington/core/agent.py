@@ -15,6 +15,7 @@ import structlog
 
 from skellington.core.config import get_settings
 from skellington.core.llm import LLMClient, LLMClientFactory
+from skellington.core.models import get_model_card
 from skellington.core.types import (
     AgentName,
     AgentResponse,
@@ -25,6 +26,7 @@ from skellington.core.types import (
     Task,
     WorkflowState,
 )
+from skellington.prompts import assemble_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +59,7 @@ class BaseAgent(abc.ABC):
         settings = get_settings()
         self._llm = llm_client or LLMClientFactory.create(provider)
         self._model = settings.get_model_for_agent(self.name.value)
+        self._model_card = get_model_card(self._model)
         self._tools: dict[str, Callable] = {}
         self._tool_schemas: list[dict[str, Any]] = []
         self.log = logger.bind(agent=self.name.value)
@@ -127,11 +130,11 @@ class BaseAgent(abc.ABC):
     # ------------------------------------------------------------------
 
     def build_config(self, stream: bool = False) -> LLMConfig:
-        """Build an LLMConfig for this agent."""
+        """Build an LLMConfig for this agent, with system prompt adapted to the model."""
         return LLMConfig(
             provider=self._llm.provider,
             model=self._model,
-            system_prompt=self.system_prompt,
+            system_prompt=assemble_prompt(self.system_prompt, self._model_card),
             tools=self._tool_schemas,
             stream=stream,
         )

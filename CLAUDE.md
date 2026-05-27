@@ -39,6 +39,20 @@ Multi-agent orchestrator. **Jack** plans + routes; specialist agents (**Sally**/
 - Mock LLMs via `tests/conftest.py::make_mock_llm` — returns a MagicMock with `provider` and an `AsyncMock` `complete`.
 - Async tests work without `@pytest.mark.asyncio` only because `asyncio_mode = "auto"` is set in `pyproject.toml`. Don't change that.
 
+## Cost-optimization levers (currently in the codebase)
+
+Each workflow makes ~5–10 LLM calls (planner + router-per-step + each specialist + synthesis). The big knobs:
+
+- **Per-subagent models** — `PLANNER_MODEL`, `ROUTER_MODEL` env vars route the highest-frequency subagents to cheaper models without changing main-agent models. See `Settings.get_model_for_subagent` in [core/config.py](src/skellington/core/config.py).
+- **Anthropic prompt caching** — `AnthropicClient` automatically wraps the system block with `cache_control: ephemeral` when the model's `ModelCard` has `supports_prompt_caching=True`. ~90% discount on cached tokens after the first call in the 5-minute window. No user opt-in required.
+- **Router keyword short-circuit** — `RouterSubagent` skips the LLM entirely for unambiguous routes (e.g. "write code" → sally). Conservative list in [subagents/router.py:_KEYWORD_ROUTES](src/skellington/subagents/router.py). Add patterns only when they're strong/unambiguous; over-eager keywords mis-route.
+- **Workflow-level dedup** — `Orchestrator(cache_workflows=True)` enables an in-process LRU on the request string (whitespace + case normalized). Off by default. Cap via `cache_size` kwarg. Only successful workflows are cached.
+
+## Not implemented (deliberate)
+
+- **Anthropic Batch API** — 50% discount for non-realtime jobs but requires submit-and-poll semantics rather than await-and-resolve, a separate `BatchClient` interface, and an orchestrator mode that knows when to use it. The web UI is realtime so this would only benefit the CLI for long workflows. Multi-day implementation; build only if there's a real use case.
+- **Embedding-based dedup** — current dedup is exact-match (whitespace + case normalized). Semantic dedup via embeddings would require an embedding provider, vector storage, and a similarity threshold. Probably premature.
+
 ## Commit hygiene
 
 - Don't add backwards-compat shims for renames — just rename and update callers.

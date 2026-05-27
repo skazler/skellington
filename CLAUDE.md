@@ -47,10 +47,24 @@ Each workflow makes ~5–10 LLM calls (planner + router-per-step + each speciali
 - **Anthropic prompt caching** — `AnthropicClient` automatically wraps the system block with `cache_control: ephemeral` when the model's `ModelCard` has `supports_prompt_caching=True`. ~90% discount on cached tokens after the first call in the 5-minute window. No user opt-in required.
 - **Router keyword short-circuit** — `RouterSubagent` skips the LLM entirely for unambiguous routes (e.g. "write code" → sally). Conservative list in [subagents/router.py:_KEYWORD_ROUTES](src/skellington/subagents/router.py). Add patterns only when they're strong/unambiguous; over-eager keywords mis-route.
 - **Workflow-level dedup** — `Orchestrator(cache_workflows=True)` enables an in-process LRU on the request string (whitespace + case normalized). Off by default. Cap via `cache_size` kwarg. Only successful workflows are cached.
+- **Anthropic Batch API primitive** — `AnthropicBatchClient` in [core/batch.py](src/skellington/core/batch.py) wraps `messages.batches` for 50%-off bulk processing. 24h SLA. Gated by `ModelCard.supports_batch_api`. Submission preserves order; `submit_and_wait()` is the synchronous-style convenience. Example:
+
+  ```python
+  from skellington.core.batch import AnthropicBatchClient
+  from skellington.core.types import LLMConfig, Message, MessageRole
+
+  client = AnthropicBatchClient()
+  calls = [
+      ([Message(role=MessageRole.USER, content=q)], LLMConfig(model="claude-haiku-4-5-20251001"))
+      for q in many_questions
+  ]
+  responses = await client.submit_and_wait(calls, poll_interval_s=60)
+  ```
+
+  Use for backlogs, nightly analysis, bulk scoring — not realtime. Integrating it into the realtime `Orchestrator` is deliberately deferred: the natural batching boundary (e.g. "batch all planner calls across requests") is opinionated and use-case-specific; build a `BatchOrchestrator` wrapper only once that pattern is clear.
 
 ## Not implemented (deliberate)
 
-- **Anthropic Batch API** — 50% discount for non-realtime jobs but requires submit-and-poll semantics rather than await-and-resolve, a separate `BatchClient` interface, and an orchestrator mode that knows when to use it. The web UI is realtime so this would only benefit the CLI for long workflows. Multi-day implementation; build only if there's a real use case.
 - **Embedding-based dedup** — current dedup is exact-match (whitespace + case normalized). Semantic dedup via embeddings would require an embedding provider, vector storage, and a similarity threshold. Probably premature.
 
 ## Commit hygiene

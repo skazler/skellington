@@ -98,6 +98,9 @@ temp/
 
 # OS
 .DS_Store
+
+# Claude Desktop configuration
+.claude/
 .DS_Store?
 ._*
 .Spotlight-V100

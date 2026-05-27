@@ -208,23 +208,29 @@ When given a task, you delegate to your subagents:
         artifact_summary: str,
     ) -> AgentResponse:
         """Synthesize a final response for the user."""
-        msg = f"""
-        🏗️ **Building Complete**
-        
-        Intent: {intent}
-        Output Directory: {output_dir}
-        Files Written: {len(written)}
-        {artifact_summary}
-        
-        Written files:
-        """
-        for fpath in written:
-            msg += f"\\n- {fpath}"
+        lines = [
+            "🏗️ **Building Complete**",
+            "",
+            f"Intent: {intent}",
+            f"Output Directory: {output_dir}",
+            f"Files Written: {len(written)}",
+            artifact_summary,
+            "",
+            "Written files:",
+            *(f"- {fpath}" for fpath in written),
+        ]
 
         return AgentResponse(
-            agent_name=self.name,
-            message=Message(role=MessageRole.ASSISTANT, content=msg),
+            agent=self.name,
+            task_id=task.id,
+            content="\n".join(lines),
             success=True,
+            metadata={
+                "intent": intent,
+                "output_dir": output_dir,
+                "file_count": len(written),
+                "files_written": written,
+            },
         )
 
 
@@ -234,11 +240,12 @@ When given a task, you delegate to your subagents:
 
 
 def _resolve_output_dir(task: Task) -> str:
-    """Resolve the output directory from task context."""
+    """Resolve the output directory from task context. Accepts 'path' or 'output_dir'."""
     ctx = task.context or {}
+    if "path" in ctx:
+        return str(ctx["path"])
     if "output_dir" in ctx:
         return str(ctx["output_dir"])
-    # Default to current working directory
     return "."
 
 

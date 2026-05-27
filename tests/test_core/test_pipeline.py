@@ -336,6 +336,62 @@ async def test_base_agent_chat_executes_tool_calls_and_loops():
 
 
 @pytest.mark.asyncio
+async def test_orchestrator_caches_successful_workflows_when_enabled():
+    """A repeat request should hit the cache and skip the workflow entirely."""
+    llm = _ScriptedLLM(_script_for_two_step_plan())
+    sally = _RecordingAgent(AgentName.SALLY)
+    AgentRegistry.register(Jack(llm_client=llm))
+    AgentRegistry.register(sally)
+    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE))
+
+    events: list[dict[str, Any]] = []
+    orch = Orchestrator(on_event=lambda ev: events.append(ev), cache_workflows=True)
+
+    state1 = await orch.run("build a widget and research its market")
+    first_run_count = sally.run_count
+
+    state2 = await orch.run("build a widget and research its market")
+
+    # Cache hit: same state object returned, no extra agent runs
+    assert state2 is state1
+    assert sally.run_count == first_run_count
+    assert any(e["type"] == "workflow.cache_hit" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_cache_is_off_by_default():
+    """Default behavior preserved — no caching unless explicitly opted in."""
+    llm = _ScriptedLLM(_script_for_two_step_plan() * 2)  # enough script for two runs
+    sally = _RecordingAgent(AgentName.SALLY)
+    AgentRegistry.register(Jack(llm_client=llm))
+    AgentRegistry.register(sally)
+    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE))
+
+    orch = Orchestrator()  # cache_workflows defaults to False
+
+    await orch.run("same request")
+    await orch.run("same request")
+
+    assert sally.run_count == 2
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_cache_normalizes_whitespace_and_case():
+    """Trivial input variations should still hit the cache."""
+    llm = _ScriptedLLM(_script_for_two_step_plan())
+    sally = _RecordingAgent(AgentName.SALLY)
+    AgentRegistry.register(Jack(llm_client=llm))
+    AgentRegistry.register(sally)
+    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE))
+
+    orch = Orchestrator(cache_workflows=True)
+    await orch.run("Build a widget   and research its market")
+    await orch.run("build a widget and research its market\n")
+
+    assert sally.run_count == 1
+
+
+@pytest.mark.asyncio
 async def test_base_agent_chat_hits_max_iterations_when_llm_never_settles():
     """If the LLM keeps requesting tools forever, chat() should bail rather than spin."""
 

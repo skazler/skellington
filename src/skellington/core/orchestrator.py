@@ -11,6 +11,8 @@ Key patterns:
 
 from __future__ import annotations
 
+import hashlib
+from collections import OrderedDict
 from typing import Any, Awaitable, Callable
 
 import structlog
@@ -74,9 +76,17 @@ class Orchestrator:
     Think of it as the stage manager behind Jack's performance.
     """
 
-    def __init__(self, on_event: EventCallback | None = None) -> None:
+    def __init__(
+        self,
+        on_event: EventCallback | None = None,
+        cache_workflows: bool = False,
+        cache_size: int = 32,
+    ) -> None:
         self.log = logger.bind(component="orchestrator")
         self._on_event = on_event
+        self._cache_enabled = cache_workflows
+        self._cache_size = cache_size
+        self._cache: OrderedDict[str, WorkflowState] = OrderedDict()
 
     async def emit(
         self,
@@ -107,6 +117,14 @@ class Orchestrator:
 
         This is the main entry point for the entire system.
         """
+        cache_key = self._cache_key(user_request) if self._cache_enabled else None
+        if cache_key and cache_key in self._cache:
+            self._cache.move_to_end(cache_key)
+            cached = self._cache[cache_key]
+            self.log.info("workflow cache hit, returning prior result", request=user_request[:100])
+            await self.emit("workflow.cache_hit", message=user_request)
+            return cached
+
         self.log.info("starting workflow", request=user_request[:100])
         await self.emit("workflow.start", message=user_request)
 
@@ -152,7 +170,22 @@ class Orchestrator:
             success=root_task.status == TaskStatus.COMPLETE,
             task_count=len(state.tasks),
         )
+
+        # Only cache successful workflows — caching failures would make a
+        # transient error sticky.
+        if cache_key and root_task.status == TaskStatus.COMPLETE:
+            self._cache[cache_key] = state
+            self._cache.move_to_end(cache_key)
+            while len(self._cache) > self._cache_size:
+                self._cache.popitem(last=False)
+
         return state
+
+    @staticmethod
+    def _cache_key(user_request: str) -> str:
+        """Stable hash of the user request. Whitespace-normalized to maximize hits."""
+        normalized = " ".join(user_request.split()).lower()
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
     async def delegate(
         self,

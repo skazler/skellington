@@ -136,7 +136,7 @@ OPENAI_API_KEY=sk-...
 GOOGLE_API_KEY=...
 
 DEFAULT_LLM_PROVIDER=anthropic
-DEFAULT_LLM_MODEL=claude-opus-4-5
+DEFAULT_LLM_MODEL=claude-opus-4-7
 
 # Web search (optional — Oogie falls back to LLM-imagined results if absent)
 BRAVE_SEARCH_API_KEY=...
@@ -149,7 +149,7 @@ FILESYSTEM_ALLOWED_PATHS=/tmp/skellington,./workspace
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Per-agent model overrides are supported: set `JACK_MODEL=claude-opus-4-5` and `SALLY_MODEL=claude-sonnet-4-5` in `.env` to run heavy planning on Opus and fast code generation on Sonnet.
+Per-agent model overrides are supported: set `JACK_MODEL=claude-opus-4-7` and `SALLY_MODEL=claude-sonnet-4-6` in `.env` to run heavy planning on Opus and fast code generation on Sonnet. Configured models that aren't in the `MODELS` registry (`src/skellington/core/models.py`) fall back to conservative capability flags and emit a startup warning.
 
 ---
 

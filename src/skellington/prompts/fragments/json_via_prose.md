@@ -1,3 +1,1 @@
-When asked for JSON, return ONLY the JSON object — no prose before or after, no
-markdown code fences. Your output will be parsed directly. If you must explain,
-put the explanation inside a string field within the JSON.
+When asked for JSON, return ONLY the raw JSON object — no prose, no markdown fences. Put any explanation inside a string field.

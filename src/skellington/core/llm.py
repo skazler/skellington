@@ -18,6 +18,7 @@ import openai
 import structlog
 
 from skellington.core.config import get_settings
+from skellington.core.models import get_model_card
 from skellington.core.types import (
     LLMConfig,
     LLMProvider,
@@ -90,10 +91,25 @@ class AnthropicClient(LLMClient):
             max_tokens=config.max_tokens,
             messages=conversation,
         )
+        card = get_model_card(config.model)
         if system:
-            kwargs["system"] = system
+            # System prompts are static per agent — caching them gives ~90%
+            # discount on cached tokens after the first call. The block form
+            # is required to attach cache_control.
+            if card.supports_prompt_caching:
+                kwargs["system"] = [
+                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                ]
+            else:
+                kwargs["system"] = system
         if config.tools:
             kwargs["tools"] = config.tools
+
+        if config.prefer_thinking and card.supports_thinking:
+            kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": config.thinking_budget_tokens,
+            }
 
         log.debug("sending request")
         response = await self._client.messages.create(**kwargs)
@@ -164,6 +180,10 @@ class OpenAIClient(LLMClient):
         )
         if config.tools:
             kwargs["tools"] = config.tools
+
+        card = get_model_card(config.model)
+        if config.response_format == "json" and card.supports_native_json:
+            kwargs["response_format"] = {"type": "json_object"}
 
         response = await self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]

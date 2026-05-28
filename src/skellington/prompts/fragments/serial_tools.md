@@ -1,2 +1,1 @@
-Call tools one at a time. Wait for each tool's result before deciding the next
-call. Do not batch multiple tool invocations into a single turn.
+Call tools one at a time and wait for each result before deciding the next call.

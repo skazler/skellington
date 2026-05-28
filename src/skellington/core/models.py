@@ -28,6 +28,8 @@ class ModelCard(BaseModel):
     supports_parallel_tools: bool = True
     max_parallel_tools: int = 8
     supports_thinking: bool = False
+    supports_prompt_caching: bool = False
+    supports_batch_api: bool = False
 
 
 MODELS: dict[str, ModelCard] = {
@@ -37,6 +39,8 @@ MODELS: dict[str, ModelCard] = {
         context_window=200_000,
         prefers_xml_tags=True,
         supports_thinking=True,
+        supports_prompt_caching=True,
+        supports_batch_api=True,
     ),
     "claude-sonnet-4-6": ModelCard(
         id="claude-sonnet-4-6",
@@ -44,12 +48,16 @@ MODELS: dict[str, ModelCard] = {
         context_window=200_000,
         prefers_xml_tags=True,
         supports_thinking=True,
+        supports_prompt_caching=True,
+        supports_batch_api=True,
     ),
     "claude-haiku-4-5-20251001": ModelCard(
         id="claude-haiku-4-5-20251001",
         provider=LLMProvider.ANTHROPIC,
         context_window=200_000,
         prefers_xml_tags=True,
+        supports_prompt_caching=True,
+        supports_batch_api=True,
     ),
     "gpt-4o": ModelCard(
         id="gpt-4o",

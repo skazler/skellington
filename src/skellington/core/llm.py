@@ -91,12 +91,20 @@ class AnthropicClient(LLMClient):
             max_tokens=config.max_tokens,
             messages=conversation,
         )
+        card = get_model_card(config.model)
         if system:
-            kwargs["system"] = system
+            # System prompts are static per agent — caching them gives ~90%
+            # discount on cached tokens after the first call. The block form
+            # is required to attach cache_control.
+            if card.supports_prompt_caching:
+                kwargs["system"] = [
+                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                ]
+            else:
+                kwargs["system"] = system
         if config.tools:
             kwargs["tools"] = config.tools
 
-        card = get_model_card(config.model)
         if config.prefer_thinking and card.supports_thinking:
             kwargs["thinking"] = {
                 "type": "enabled",

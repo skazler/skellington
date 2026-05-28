@@ -66,7 +66,7 @@ class BaseSubAgent(abc.ABC, Generic[T]):
     ) -> None:
         settings = get_settings()
         self._llm = llm_client or LLMClientFactory.create(provider)
-        self._model = settings.get_model_for_agent(self.parent_agent.value)
+        self._model = settings.get_model_for_subagent(self.name, self.parent_agent.value)
         self.log = logger.bind(subagent=self.name, parent=self.parent_agent.value)
 
     @property

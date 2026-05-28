@@ -16,6 +16,26 @@ from skellington.utils.json_utils import extract_json
 # All valid agent names the router may return
 _VALID_AGENTS = {a.value for a in AgentName}
 
+# Keyword heuristics: when a step obviously matches a specialist, skip the
+# LLM call entirely. Each entry is (target_agent, keywords). First match wins.
+# Conservative — we'd rather pay for an LLM call than mis-route, so these
+# only fire on strong, unambiguous signals.
+_KEYWORD_ROUTES: list[tuple[str, tuple[str, ...]]] = [
+    ("sally", ("write code", "generate code", "scaffold", "create a new project", "refactor")),
+    ("oogie", ("web search", "search the web", "look up online", "research online")),
+    ("zero", ("read the file", "find the file", "explore the codebase", "show me the file")),
+    ("mayor", ("summarize the results", "format the output", "write a report")),
+]
+
+
+def _keyword_route(step: str) -> str | None:
+    """Return an agent name if the step matches an unambiguous keyword pattern."""
+    lower = step.lower()
+    for agent, keywords in _KEYWORD_ROUTES:
+        if any(kw in lower for kw in keywords):
+            return agent
+    return None
+
 
 class RoutingDecision(BaseModel):
     """A routing decision for a single task step."""
@@ -51,6 +71,15 @@ Respond with ONLY a JSON object — no explanation, no markdown prose, no code f
 
     async def run(self, step: str) -> RoutingDecision:
         """Route a step to the best agent."""
+        keyword_match = _keyword_route(step)
+        if keyword_match is not None:
+            self.log.debug("router keyword short-circuit", step=step[:60], agent=keyword_match)
+            return RoutingDecision(
+                step=step,
+                assigned_agent=keyword_match,
+                reasoning="keyword heuristic",
+            )
+
         response = await self._call_llm(
             f"Route this task step to the best agent:\n\n{step}",
             temperature=0.1,

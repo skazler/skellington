@@ -96,6 +96,34 @@ async def test_router_fallback_on_bad_json():
     assert decision.assigned_agent == "mayor"
 
 
+@pytest.mark.asyncio
+async def test_router_keyword_shortcircuit_skips_llm():
+    """Obvious routes should bypass the LLM entirely — saves a call per plan step."""
+    llm = _make_llm("would have hallucinated")
+    router = RouterSubagent(llm_client=llm)
+
+    decision = await router.run("please write code for a word counter")
+
+    assert decision.assigned_agent == "sally"
+    assert decision.reasoning == "keyword heuristic"
+    # The LLM client must NOT have been called
+    llm.complete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_router_falls_through_to_llm_when_no_keyword_matches():
+    """Steps that don't obviously match a specialist should still hit the LLM."""
+    llm = _make_llm(
+        '{"step": "ambiguous", "assigned_agent": "oogie", "reasoning": "research-ish"}'
+    )
+    router = RouterSubagent(llm_client=llm)
+
+    decision = await router.run("do something undecided")
+
+    assert decision.assigned_agent == "oogie"
+    llm.complete.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # Jack full flow (planner + router mocked out)
 # ---------------------------------------------------------------------------

@@ -88,6 +88,44 @@ async def test_openai_sets_json_response_format_when_supported(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_anthropic_caches_system_prompt_when_supported(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    from skellington.core import config as config_module
+    from skellington.core.llm import AnthropicClient
+
+    config_module.get_settings.cache_clear()
+    client = AnthropicClient()
+    client._client = MagicMock()
+    client._client.messages.create = AsyncMock(return_value=_stub_anthropic_response())
+
+    cfg = LLMConfig(model="claude-opus-4-7", system_prompt="you are a helper")
+    await client.complete([Message(role=MessageRole.USER, content="hi")], cfg)
+
+    kwargs = client._client.messages.create.call_args.kwargs
+    assert isinstance(kwargs["system"], list)
+    assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert kwargs["system"][0]["text"] == "you are a helper"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_sends_plain_system_when_caching_unsupported(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    from skellington.core import config as config_module
+    from skellington.core.llm import AnthropicClient
+
+    config_module.get_settings.cache_clear()
+    client = AnthropicClient()
+    client._client = MagicMock()
+    client._client.messages.create = AsyncMock(return_value=_stub_anthropic_response())
+
+    cfg = LLMConfig(model="some-unknown-model", system_prompt="you are a helper")
+    await client.complete([Message(role=MessageRole.USER, content="hi")], cfg)
+
+    kwargs = client._client.messages.create.call_args.kwargs
+    assert kwargs["system"] == "you are a helper"  # plain string, not a list
+
+
+@pytest.mark.asyncio
 async def test_openai_omits_response_format_when_text(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     from skellington.core import config as config_module

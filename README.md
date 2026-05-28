@@ -1,5 +1,12 @@
 # 🎃🎄 Skellington
 
+[![CI](https://github.com/skazler/skellington/actions/workflows/ci.yml/badge.svg)](https://github.com/skazler/skellington/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+![Tests](https://img.shields.io/badge/tests-158%20passing-brightgreen.svg)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+![Pydantic v2](https://img.shields.io/badge/pydantic-v2-e92063.svg)
+
 > *"What's this? What's this? There's agents everywhere!"*
 
 A multi-agent AI orchestration framework where each agent is a **Halloween-ized Christmas character**. Give it a request in plain English — Jack plans it, routes subtasks to specialist agents, and weaves their results into a final answer. Streams the whole thing live over WebSockets.
@@ -7,6 +14,18 @@ A multi-agent AI orchestration framework where each agent is a **Halloween-ized 
 ```bash
 skellington "research the top Python async libraries and scaffold a demo project"
 ```
+
+## Table of Contents
+
+- [Features](#-features)
+- [The Crew](#-the-crew)
+- [Architecture](#-architecture)
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration)
+- [Project Structure](#-project-structure)
+- [Testing](#-testing)
+- [Design Patterns](#-design-patterns)
+- [License](#-license)
 
 ---
 
@@ -21,7 +40,7 @@ skellington "research the top Python async libraries and scaffold a demo project
 - **Hallucination-resistant subagents** — LLM does judgement, Python does facts (diffs come from `difflib`, counts from state)
 - **Live streaming web UI** — every plan/route/agent transition pushed to the browser in real time
 - **Rich CLI** — dark-mode Halloween theming via Typer + Rich
-- **Production-grade tests** — 115 tests covering orchestration, subagents, MCP, and the web UI
+- **Production-grade tests** — 158 tests covering orchestration, subagents, MCP, and the web UI
 
 ---
 
@@ -73,7 +92,7 @@ async def on_event(event: dict) -> None:
 state = await Orchestrator(on_event=on_event).run("your request")
 ```
 
-Event vocabulary: `workflow.start/complete`, `plan.created/failed`, `route.decided/failed`, `agent.start/complete/fail`, `synthesis.start`, `result.final`.
+Event vocabulary: `workflow.start/complete/cache_hit`, `plan.created/failed`, `route.decided/failed`, `agent.start/complete/fail`, `synthesis.start`, `result.final`.
 
 ### MCP servers
 
@@ -204,7 +223,7 @@ skellington/
 │       ├── logging.py          # structlog config
 │       └── themes.py           # Rich Halloween theming
 │
-├── tests/                      # 115 tests
+├── tests/                      # 158 tests
 │   ├── test_agents/            # one file per agent (jack, sally, oogie, zero, validators, mayor)
 │   ├── test_subagents/         # parallel exec + every subagent
 │   ├── test_core/              # types, config, json_utils, events
@@ -223,7 +242,7 @@ skellington/
 ## 🧪 Testing
 
 ```bash
-pytest                        # full suite (115 tests)
+pytest                        # full suite (158 tests)
 pytest --cov=skellington      # with coverage
 pytest tests/test_agents/     # one layer
 pytest -k mayor               # one agent

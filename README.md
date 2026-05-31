@@ -1,132 +1,39 @@
 # 🎃🎄 Skellington
 
-[![CI](https://github.com/skazler/skellington/actions/workflows/ci.yml/badge.svg)](https://github.com/skazler/skellington/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-![Tests](https://img.shields.io/badge/tests-158%20passing-brightgreen.svg)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-![Pydantic v2](https://img.shields.io/badge/pydantic-v2-e92063.svg)
-
 > *"What's this? What's this? There's agents everywhere!"*
 
-A multi-agent AI orchestration framework where each agent is a **Halloween-ized Christmas character**. Give it a request in plain English — Jack plans it, routes subtasks to specialist agents, and weaves their results into a final answer. Streams the whole thing live over WebSockets.
+A multi-agent AI orchestration framework where each agent is a Halloween-ized Christmas character. Jack plans your request, routes subtasks to specialists, and weaves the results into a final answer — streamed live over WebSockets.
 
 ```bash
 skellington "research the top Python async libraries and scaffold a demo project"
 ```
 
-## Table of Contents
-
-- [Features](#-features)
-- [The Crew](#-the-crew)
-- [Architecture](#-architecture)
-- [Quick Start](#-quick-start)
-- [Configuration](#-configuration)
-- [Project Structure](#-project-structure)
-- [Testing](#-testing)
-- [Design Patterns](#-design-patterns)
-- [License](#-license)
-
----
-
-## ✨ Features
-
-- **Plan → route → delegate → synthesize** orchestration pipeline
-- **Six specialist agents** — each owns a domain and its subagents
-- **Multi-agent consensus** — three validators vote on code quality (majority rules)
-- **Pluggable LLM providers** — Claude, OpenAI, Gemini, Ollama via one interface
-- **Six MCP servers built-in** — filesystem, web search, git, code exec, sqlite, docs
-- **Toolkit injection** — agents accept in-process tools *or* orthodox stdio MCP clients
-- **Hallucination-resistant subagents** — LLM does judgement, Python does facts (diffs come from `difflib`, counts from state)
-- **Live streaming web UI** — every plan/route/agent transition pushed to the browser in real time
-- **Rich CLI** — dark-mode Halloween theming via Typer + Rich
-- **Production-grade tests** — 158 tests covering orchestration, subagents, MCP, and the web UI
+*A personal learning project. Not production-ready, not affiliated with any LLM provider. [![CI](https://github.com/skazler/skellington/actions/workflows/ci.yml/badge.svg)](https://github.com/skazler/skellington/actions/workflows/ci.yml)*
 
 ---
 
 ## 🎭 The Crew
 
-| Agent | Character | Role | Subagents |
-|-------|-----------|------|-----------|
-| 🎃👔 **Jack Skellington** | Pumpkin King who discovered Christmas | **Orchestrator** — plans and routes | Planner, Router |
-| 🧟‍♀️🎁 **Sally Claus** | Rag doll who sews Christmas magic | **Builder** — codegen, scaffold, refactor | CodeGen, Scaffold, Refactor |
-| 🎰🎅 **Oogie Boogie** | Boogeyman running Christmas research | **Researcher** — web search + RAG | Search, Summary, Compare |
-| 👻🔴 **Zero** | Ghost dog with a glowing red nose | **Navigator** — codebase exploration | FileExplorer, Dependency, Context |
-| 👹🧝 **Lock, Shock & Barrel** | Trick-or-treat trio as Christmas elves | **Validators** — consensus-based code review | Lint, Test, Security |
-| 🎭📊 **The Mayor** | Two-faced Mayor of Halloween/Christmas Town | **Reporter** — summarizes and formats | Status, Diff, Format |
-
----
-
-## 🏗️ Architecture
-
-```
-User Request
-     │
-     ▼
-Orchestrator.run()
-  ├─ emits workflow.start
-  └─ Jack.run()
-       ├─ PlannerSubagent       → Plan(steps=[…])                emits plan.created
-       ├─ RouterSubagent × N    → RoutingDecision(agent, step)   emits route.decided
-       │                          (parallel via asyncio.gather)
-       ├─ Orchestrator.delegate(step, agent) × N                 emits agent.start/complete/fail
-       │    ├─ Zero   — navigation  (publishes state.metadata["navigation"])
-       │    ├─ Sally  — builds      (publishes state.metadata["builds"])
-       │    ├─ Oogie  — research    (publishes state.metadata["research"])
-       │    ├─ Mayor  — reporting   (publishes state.metadata["reports"])
-       │    └─ ValidatorCoordinator — runs Lock/Shock/Barrel in parallel
-       │         └─ ConsensusResult (2/3 majority vote + avg score)
-       │
-       └─ Jack._synthesize()    → AgentResponse                  emits synthesis.start
-                                                                  emits workflow.complete
-```
-
-### Event bus
-
-Pass a callback to the orchestrator and every transition streams out:
-
-```python
-async def on_event(event: dict) -> None:
-    print(event)  # {"type": "agent.start", "agent": "sally", "message": "...", "data": {…}}
-
-state = await Orchestrator(on_event=on_event).run("your request")
-```
-
-Event vocabulary: `workflow.start/complete/cache_hit`, `plan.created/failed`, `route.decided/failed`, `agent.start/complete/fail`, `synthesis.start`, `result.final`.
-
-### MCP servers
-
-| Server | Purpose | Used by |
-|--------|---------|---------|
-| `filesystem` | read / write / list / search | Zero, Sally |
-| `websearch` | Brave + Tavily with graceful fallback | Oogie |
-| `git_server` | status / log / diff | Zero, Mayor |
-| `code_exec` | sandboxed Python + pytest | Lock/Shock/Barrel |
-| `database` | SQLite key-value store | all agents |
-| `docs` | HTML fetch + PyPI lookup | Oogie |
-
-Each server ships as a pair: pure-Python `tools.py` (in-process) and a thin stdio adapter (`server.py`) for orthodox MCP clients.
+- 🎃 **Jack Skellington** — orchestrator: plans and routes
+- 🧟‍♀️ **Sally Claus** — builder: codegen, scaffold, refactor
+- 🎰 **Oogie Boogie** — researcher: web search + RAG
+- 👻 **Zero** — navigator: codebase exploration
+- 👹 **Lock, Shock & Barrel** — validators: 2/3 consensus code review
+- 🎭 **The Mayor** — reporter: summarizes and formats
 
 ---
 
 ## 🚀 Quick Start
 
 ```bash
-# Install
 git clone https://github.com/skazler/skellington.git
 cd skellington
 pip install -e ".[dev]"
 
-# Configure
-cp .env.example .env
-# Edit .env — at minimum set ANTHROPIC_API_KEY or OPENAI_API_KEY
+cp .env.example .env   # set API_KEY
 
-# CLI
 skellington "research the best Python async libraries and scaffold a demo"
-
-# Web UI (live streaming)
-skellington web
-# → open http://localhost:8000
+skellington web        # local port: 8000
 ```
 
 ### Python API
@@ -144,97 +51,63 @@ print(state.tasks[0].result)
 
 ---
 
-## 🛠️ Configuration
+## 🏗️ How it works
 
-Copy `.env.example` → `.env`:
+**Plan → route → delegate → synthesize.** Jack runs a `PlannerSubagent` to break the request into steps, a `RouterSubagent` picks the specialist for each step (in parallel), each specialist runs its subagents, and Jack synthesizes the final answer.
+
+Every transition emits a typed event — `workflow.start`, `plan.created`, `route.decided`, `agent.start/complete/fail`, `synthesis.start`, `result.final` — which is what powers the live web UI.
+
+```python
+async def on_event(event: dict) -> None:
+    print(event)
+
+state = await Orchestrator(on_event=on_event).run("your request")
+```
+
+**Six MCP servers** ship in-tree: `filesystem`, `websearch`, `git_server`, `code_exec`, `database`, `docs`. Each is a pair — a pure-Python `tools.py` for in-process use and a stdio `server.py` for orthodox MCP clients. Agents accept a `fs=` / `search=` kwarg so tests pass mock toolkits the same way production passes real ones.
+
+**A few deliberate choices** worth knowing about:
+
+- **LLM for judgement, Python for facts.** Diffs come from `difflib`; counts from `WorkflowState`. The LLM only narrates. Cuts hallucination surface.
+- **Skill-per-file.** Specialist agents live in packages where each tool is its own file under `skills/`. Adding a skill = one new file + one line in `__init__.py`.
+- **Graceful degradation.** No search API key → Oogie falls back to LLM-imagined results. Empty workflow → short-circuit without an LLM call.
+- **Consensus with isolation.** Lock/Shock/Barrel run in parallel; a crashing validator is a failed vote, not a panel-wide failure.
+
+---
+
+## 🛠️ Configuration Examples
 
 ```env
-# LLM providers — configure at least one
+# At least one provider
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
-GOOGLE_API_KEY=...
 
 DEFAULT_LLM_PROVIDER=anthropic
 DEFAULT_LLM_MODEL=claude-opus-4-7
 
-# Web search (optional — Oogie falls back to LLM-imagined results if absent)
+# Optional — Oogie falls back if absent
 BRAVE_SEARCH_API_KEY=...
 TAVILY_API_KEY=...
 
-# Filesystem sandbox — comma-separated allowed roots
+# Filesystem sandbox
 FILESYSTEM_ALLOWED_PATHS=/tmp/skellington,./workspace
-
-# Local models (optional)
-OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Per-agent model overrides are supported: set `JACK_MODEL=claude-opus-4-7` and `SALLY_MODEL=claude-sonnet-4-6` in `.env` to run heavy planning on Opus and fast code generation on Sonnet. Configured models that aren't in the `MODELS` registry (`src/skellington/core/models.py`) fall back to conservative capability flags and emit a startup warning.
+Per-agent overrides: set `JACK_MODEL=claude-opus-4-7` and `SALLY_MODEL=claude-sonnet-4-6` to put heavy planning on Opus and fast codegen on Sonnet.
 
 ---
 
-## 📁 Project Structure
+## 📁 Layout
 
 ```
-skellington/
-├── src/skellington/
-│   ├── core/                   # Foundation
-│   │   ├── agent.py            # BaseAgent + tool-use loop
-│   │   ├── subagent.py         # BaseSubAgent[T] + run_subagents_parallel()
-│   │   ├── orchestrator.py     # AgentRegistry + delegate() + event bus
-│   │   ├── llm.py              # Anthropic/OpenAI/Gemini client factory
-│   │   ├── memory.py           # SQLite-backed agent memory
-│   │   ├── config.py           # Pydantic Settings + per-agent overrides
-│   │   └── types.py            # Task, WorkflowState, AgentResponse, …
-│   │
-│   ├── agents/                 # Main agents
-│   │   ├── jack.py             # Orchestrator
-│   │   ├── zero.py             # Navigator
-│   │   ├── validators.py       # Lock/Shock/Barrel + ValidatorCoordinator
-│   │   ├── sally/              # Builder package
-│   │   │   ├── agent.py        # Sally — codegen / scaffold / refactor
-│   │   │   └── skills/         # imports.py, styling.py, testing.py
-│   │   ├── oogie/              # Researcher package
-│   │   │   ├── agent.py        # Oogie — search / summary / compare
-│   │   │   └── skills/         # search.py, analysis.py, summarization.py
-│   │   └── mayor/              # Reporter package
-│   │       ├── agent.py        # Mayor — status / diff / format
-│   │       └── skills/         # documentation.py, visualization.py, formatting.py
-│   │
-│   ├── subagents/              # Specialized subagents
-│   │   ├── planner.py, router.py
-│   │   ├── codegen.py, refactor.py, scaffold.py
-│   │   ├── search.py, summary.py, compare.py
-│   │   ├── file_explorer.py, dependency.py, context.py
-│   │   ├── lint.py, test_runner.py, security.py
-│   │   └── formatter.py, diff.py, status.py
-│   │
-│   ├── mcp_servers/            # MCP server implementations
-│   │   ├── filesystem/, websearch/, git_server/
-│   │   └── code_exec/, database/, docs/
-│   │
-│   ├── ui/
-│   │   ├── cli.py              # Typer + Rich CLI
-│   │   └── web/
-│   │       ├── app.py          # FastAPI + WebSocket streaming
-│   │       └── templates/index.html   # dark-mode UI + event timeline
-│   │
-│   └── utils/
-│       ├── json_utils.py       # extract_json() — 4-strategy LLM JSON parser
-│       ├── logging.py          # structlog config
-│       └── themes.py           # Rich Halloween theming
-│
-├── tests/                      # 158 tests
-│   ├── test_agents/            # one file per agent (jack, sally, oogie, zero, validators, mayor)
-│   ├── test_subagents/         # parallel exec + every subagent
-│   ├── test_core/              # types, config, json_utils, events
-│   ├── test_ui/                # websocket streaming smoke test
-│   └── test_mcp_servers/       # filesystem tools, stdio client, access gating
-│
-└── docs/
-    ├── architecture.md
-    ├── learning_guide.md
-    ├── mcp_guide.md
-    └── agents/jack.md
+src/skellington/
+├── core/           # BaseAgent, BaseSubAgent, Orchestrator, LLM clients, types
+├── agents/         # Jack, Sally, Oogie, Zero, Mayor, Lock/Shock/Barrel
+├── subagents/      # Planner, Router, CodeGen, Search, Lint, …
+├── mcp_servers/    # filesystem, websearch, git_server, code_exec, database, docs
+├── ui/             # Typer CLI + FastAPI/WebSocket web UI
+└── utils/          # extract_json (4-strategy LLM JSON parser), logging, themes
+tests/              # 158 tests, one file per agent / subagent / server
 ```
 
 ---
@@ -243,24 +116,9 @@ skellington/
 
 ```bash
 pytest                        # full suite (158 tests)
-pytest --cov=skellington      # with coverage
 pytest tests/test_agents/     # one layer
 pytest -k mayor               # one agent
 ```
-
----
-
-## 🧱 Design Patterns
-
-A few deliberate choices worth calling out:
-
-- **Skill-per-file modules** — specialist agents (Sally, Oogie, Mayor) live in packages where each registered tool gets its own file under `skills/`, exporting a `func` and a `SCHEMA`. The agent's `agent.py` stays focused on orchestration; adding a skill is a single new file plus one line in `skills/__init__.py`.
-- **Toolkit injection** — agents accept a `search=` / `fs=` kwarg that defaults to the in-process `tools.py`. Pass an orthodox MCP stdio client instead and nothing else changes. Tests pass mock toolkits the same way.
-- **LLM-for-judgement, Python-for-facts** — `DiffSubagent` uses `difflib` for the diff text; the LLM only narrates. `StatusSubagent` counts task statuses from `WorkflowState`; the LLM only writes the narrative. Cuts hallucination surface.
-- **Graceful degradation** — no API key? Oogie falls back to LLM-imagined search results so pipelines keep running in dev. Empty workflow? `StatusSubagent` short-circuits without an LLM call.
-- **Event-bus over polling** — orchestrator emits typed events; sync and async callbacks both work. Callback errors are swallowed so a broken UI can't crash the workflow.
-- **Consensus with exception isolation** — `ValidatorCoordinator` runs three validators in parallel. A crashing validator becomes a failed verdict, not a panel-wide failure.
-- **`extract_json()`** — 4-strategy LLM JSON parser (direct → ` ```json ` fence → any fence → balanced brace scan). Because LLMs cannot, in fact, return JSON.
 
 ---
 

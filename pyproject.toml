@@ -119,6 +119,7 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-v --tb=short"
 markers = [
     "integration: spawns real subprocesses (slower, cross-platform-sensitive)",

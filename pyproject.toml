@@ -103,6 +103,11 @@ ignore = ["E501"]
 [tool.ruff.lint.isort]
 known-first-party = ["skellington"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Typer declares CLI options as argument defaults; the call is declarative,
+# not a mutable default being shared between invocations.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
 # --- Black ---
 [tool.black]
 line-length = 100

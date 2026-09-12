@@ -1,5 +1,6 @@
 """Eval harness for Skellington workflows."""
 
+from skellington.eval.runner import build_runtime, run_case, run_set
 from skellington.eval.trajectory import (
     agent_trajectory,
     lifecycle_violations,
@@ -24,8 +25,11 @@ __all__ = [
     "EvalSet",
     "Expect",
     "agent_trajectory",
+    "build_runtime",
     "lifecycle_violations",
     "routed_agents",
+    "run_case",
+    "run_set",
     "score",
     "trajectory_score",
 ]

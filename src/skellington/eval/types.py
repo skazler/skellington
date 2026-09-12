@@ -26,6 +26,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from skellington.core.types import ModelUsage, Usage
+
 
 class Expect(BaseModel):
     """What a case asserts about a run.
@@ -58,6 +60,19 @@ class Expect(BaseModel):
 
     max_total_tokens: int | None = None
     """Cost ceiling, in tokens."""
+
+    allow_step_failures: bool = False
+    """Whether an agent.fail mid-run is acceptable.
+
+    Off by default, and deliberately so. Jack synthesizes whatever partial
+    results come back, so a workflow whose validation step failed outright
+    still reports success with plausible prose. Without this check a dropped
+    specialist is invisible to every other assertion here: the trajectory
+    still lists the agent (it was attempted), the stream is still well
+    formed, and the answer still reads fine.
+
+    Turn it on for a case that is deliberately exercising a failure path.
+    """
 
     @property
     def is_empty(self) -> bool:
@@ -128,3 +143,81 @@ class EvalSet(BaseModel):
 
     def get(self, case_id: str) -> EvalCase | None:
         return next((c for c in self.cases if c.id == case_id), None)
+
+
+# ---------------------------------------------------------------------------
+# Results
+# ---------------------------------------------------------------------------
+
+
+class Check(BaseModel):
+    """One assertion's outcome, kept as data so a report can explain itself."""
+
+    name: str
+    passed: bool
+    detail: str
+    score: float | None = None
+    """Graded checks report a 0..1 score; binary checks leave this None."""
+
+
+class CaseResult(BaseModel):
+    """What one case produced when run."""
+
+    case_id: str
+    checks: list[Check] = Field(default_factory=list)
+    trajectory: list[str] = Field(default_factory=list)
+    final_output: str | None = None
+    usage: Usage = Field(default_factory=Usage)
+    duration_s: float = 0.0
+    error: str | None = None
+    """Set when the run itself blew up, as opposed to failing its checks.
+    A harness that reports those two the same way hides its own bugs."""
+
+    @property
+    def passed(self) -> bool:
+        return self.error is None and all(c.passed for c in self.checks)
+
+    @property
+    def trajectory_score(self) -> float | None:
+        check = next((c for c in self.checks if c.name == "trajectory"), None)
+        return check.score if check else None
+
+
+class EvalReport(BaseModel):
+    """Every case in one set."""
+
+    set_name: str
+    results: list[CaseResult] = Field(default_factory=list)
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for r in self.results if r.passed)
+
+    @property
+    def total(self) -> int:
+        return len(self.results)
+
+    @property
+    def all_passed(self) -> bool:
+        return self.total > 0 and self.passed == self.total
+
+    @property
+    def usage(self) -> Usage:
+        """Cost of the whole set."""
+        total = Usage()
+        for result in self.results:
+            total.calls += result.usage.calls
+            total.input_tokens += result.usage.input_tokens
+            total.output_tokens += result.usage.output_tokens
+            for model, per in result.usage.by_model.items():
+                agg = total.by_model.setdefault(model, ModelUsage())
+                agg.calls += per.calls
+                agg.input_tokens += per.input_tokens
+                agg.output_tokens += per.output_tokens
+        return total
+
+    @property
+    def trajectory_avg(self) -> float | None:
+        """Mean trajectory score across cases that tested one."""
+        scores = [r.trajectory_score for r in self.results if r.trajectory_score is not None]
+        return sum(scores) / len(scores) if scores else None

@@ -25,6 +25,7 @@ from skellington.core.types import (
     TaskStatus,
     WorkflowState,
 )
+from skellington.core.usage import UsageRecorder
 
 logger = structlog.get_logger(__name__)
 
@@ -53,10 +54,12 @@ class Orchestrator:
         self,
         agents: Iterable[object] = (),
         on_event: EventCallback | None = None,
+        usage: UsageRecorder | None = None,
         cache_workflows: bool = False,
         cache_size: int = 32,
     ) -> None:
         self.log = logger.bind(component="orchestrator")
+        self._usage = usage
         self._agents: dict[AgentName, object] = {a.name: a for a in agents}  # type: ignore[attr-defined]
         self._on_event = on_event
         self._cache_enabled = cache_workflows
@@ -115,6 +118,10 @@ class Orchestrator:
         self.log.info("starting workflow", request=user_request[:100])
         await self.emit("workflow.start", message=user_request)
 
+        # Recorders are wired into the agents' LLM client and outlive any one
+        # workflow, so a run reports the delta it is responsible for.
+        usage_before = self._usage.snapshot() if self._usage else None
+
         state = WorkflowState(user_request=user_request)
 
         # Create the root task
@@ -131,7 +138,14 @@ class Orchestrator:
             self.log.error("Jack not registered")
             root_task.status = TaskStatus.FAILED
             root_task.error = "Orchestrator: Jack (the orchestrator agent) is not registered"
-            await self.emit("workflow.complete", message="Jack not registered", success=False)
+            # Same payload shape as the normal exit — consumers parse one event.
+            await self.emit(
+                "workflow.complete",
+                message=root_task.error,
+                success=False,
+                task_count=len(state.tasks),
+                usage=state.usage.model_dump(),
+            )
             return state
 
         # Run Jack
@@ -147,12 +161,16 @@ class Orchestrator:
             root_task.status = TaskStatus.FAILED
             root_task.error = str(exc)
 
+        if self._usage is not None and usage_before is not None:
+            state.usage = self._usage.snapshot().since(usage_before)
+
         self.log.info("workflow complete", status=root_task.status.value)
         await self.emit(
             "workflow.complete",
             message=root_task.result or root_task.error or "",
             success=root_task.status == TaskStatus.COMPLETE,
             task_count=len(state.tasks),
+            usage=state.usage.model_dump(),
         )
 
         # Only cache successful workflows — caching failures would make a

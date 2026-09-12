@@ -33,6 +33,7 @@ from skellington.core.types import (
     Task,
     WorkflowState,
 )
+from skellington.core.usage import UsageRecorder, UsageTrackingClient
 
 REQUEST = (
     "Research online the top Python async frameworks, write code for a small demo, "
@@ -66,9 +67,9 @@ SYNTHESIS = (
 class TracingLLM:
     """Canned LLM that answers based on which system prompt it was handed.
 
-    Also keeps a ledger of every call, which is the point: nothing in the
-    codebase currently accumulates this, so it is the only place you can see
-    how many calls one request actually costs.
+    Keeps a per-call ledger of who asked for what. The token totals come
+    from the real UsageRecorder below, not from this ledger — the ledger only
+    attributes each call to a caller, which the recorder does not track.
     """
 
     provider = LLMProvider.ANTHROPIC
@@ -191,11 +192,13 @@ async def main(verbose: bool = False) -> None:
         AgentName.BARREL,
         AgentName.MAYOR,
     )
-    agents = [Jack(llm_client=llm), *(StubAgent(name) for name in specialists)]
+    recorder = UsageRecorder()
+    tracked = UsageTrackingClient(llm, recorder)
+    agents = [Jack(llm_client=tracked), *(StubAgent(name) for name in specialists)]
 
     print(f"\nrequest: {REQUEST}")
     rule("events")
-    orchestrator = Orchestrator(agents=agents, on_event=trace)
+    orchestrator = Orchestrator(agents=agents, on_event=trace, usage=recorder)
     state = await orchestrator.run(REQUEST)
 
     rule("workflow state")
@@ -207,15 +210,20 @@ async def main(verbose: bool = False) -> None:
         print(f"    {kind} [{task.status.value:<9}] {owner:<7} {task.title[:52]}")
 
     rule("llm calls")
-    total_in = sum(c["input_tokens"] for c in llm.ledger)
-    total_out = sum(c["output_tokens"] for c in llm.ledger)
     for i, call in enumerate(llm.ledger, 1):
         print(
             f"  {i}. {call['caller']:<18} {call['model']:<20} "
             f"in={call['input_tokens']:<5} out={call['output_tokens']}"
         )
-    print(f"\n  {len(llm.ledger)} calls, {total_in} in / {total_out} out (tokens)")
-    print("  none of this is recorded on WorkflowState — that is gap #3.\n")
+
+    usage = state.usage
+    print(f"\n  state.usage: {usage.calls} calls, "
+          f"{usage.input_tokens} in / {usage.output_tokens} out "
+          f"({usage.total_tokens} tokens)")
+    for model, per in sorted(usage.by_model.items()):
+        print(f"    {model:<24} {per.calls} calls, "
+              f"{per.input_tokens} in / {per.output_tokens} out")
+    print()
 
 
 if __name__ == "__main__":

@@ -97,6 +97,59 @@ class ToolResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Usage Accounting
+# ---------------------------------------------------------------------------
+
+
+class ModelUsage(BaseModel):
+    """Tokens attributed to a single model id."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class Usage(BaseModel):
+    """Token totals for a run, with a per-model breakdown.
+
+    The breakdown is what makes the cheap-subagent levers (PLANNER_MODEL,
+    ROUTER_MODEL) measurable rather than merely plausible.
+    """
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    by_model: dict[str, ModelUsage] = Field(default_factory=dict)
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+    def since(self, earlier: Usage) -> Usage:
+        """Usage accumulated after `earlier` was snapshotted.
+
+        Recorders outlive a single workflow, so a run reports its own delta
+        rather than the recorder's running totals.
+        """
+        by_model: dict[str, ModelUsage] = {}
+        for model, now in self.by_model.items():
+            was = earlier.by_model.get(model, ModelUsage())
+            delta = ModelUsage(
+                calls=now.calls - was.calls,
+                input_tokens=now.input_tokens - was.input_tokens,
+                output_tokens=now.output_tokens - was.output_tokens,
+            )
+            if delta.calls:
+                by_model[model] = delta
+        return Usage(
+            calls=self.calls - earlier.calls,
+            input_tokens=self.input_tokens - earlier.input_tokens,
+            output_tokens=self.output_tokens - earlier.output_tokens,
+            by_model=by_model,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Task & Workflow Types
 # ---------------------------------------------------------------------------
 
@@ -137,6 +190,7 @@ class WorkflowState(BaseModel):
     messages: list[Message] = Field(default_factory=list)
     active_agent: AgentName | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    usage: Usage = Field(default_factory=Usage)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

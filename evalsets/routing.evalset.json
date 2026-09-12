@@ -1,0 +1,35 @@
+{
+  "name": "routing",
+  "description": "Does Jack decompose a request and hand each step to the right specialist?",
+  "cases": [
+    {
+      "id": "research-build-review-report",
+      "request": "Research the top Python async frameworks, write a small demo, check the demo is correct, and summarize the results.",
+      "notes": "The four-specialist path. Exercises the validator route, which silently dropped its step before the delegate() fix.",
+      "expect": {
+        "agents": ["oogie", "sally", "lock", "mayor"],
+        "succeeded": true
+      }
+    },
+    {
+      "id": "research-only",
+      "request": "Research what MCP is and summarize what you find.",
+      "notes": "Short plan. Should not drag in Sally for a request with no build step.",
+      "expect": {
+        "agents": ["oogie", "mayor"],
+        "excludes": ["Traceback"],
+        "succeeded": true
+      }
+    },
+    {
+      "id": "build-only",
+      "request": "Write code for a Python function that reverses a string.",
+      "notes": "Single-step plan; the keyword short-circuit in RouterSubagent should route this without an LLM call.",
+      "expect": {
+        "agents": ["sally"],
+        "succeeded": true,
+        "max_llm_calls": 3
+      }
+    }
+  ]
+}

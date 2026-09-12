@@ -198,16 +198,6 @@ class Orchestrator:
 
         Called by Jack when routing subtasks to Sally, Oogie, Zero, etc.
         """
-        agent = AgentRegistry.get(to_agent)
-        if agent is None:
-            return AgentResponse(
-                agent=to_agent,
-                task_id=task.id,
-                content="",
-                success=False,
-                error=f"Agent '{to_agent.value}' is not registered",
-            )
-
         task.assigned_to = to_agent
         task.status = TaskStatus.DELEGATED
         state.active_agent = to_agent
@@ -215,10 +205,30 @@ class Orchestrator:
         self.log.info("delegating task", task=task.title, to=to_agent.value)
         await self.emit("agent.start", agent=to_agent, message=task.title)
 
+        # Looked up after agent.start so that every delegation produces a
+        # start plus exactly one terminal event. A missing agent that returned
+        # early here would drop the step silently and still report success.
+        agent = AgentRegistry.get(to_agent)
+        if agent is None:
+            error = f"Agent '{to_agent.value}' is not registered"
+            self.log.error("delegation target not registered", to=to_agent.value)
+            task.status = TaskStatus.FAILED
+            task.error = error
+            await self.emit("agent.fail", agent=to_agent, message=error, success=False)
+            return AgentResponse(
+                agent=to_agent,
+                task_id=task.id,
+                content="",
+                success=False,
+                error=error,
+            )
+
         try:
             response = await agent.run(task, state)  # type: ignore[attr-defined]
             task.status = TaskStatus.COMPLETE if response.success else TaskStatus.FAILED
             task.result = response.content
+            if not response.success:
+                task.error = response.error
             await self.emit(
                 "agent.complete" if response.success else "agent.fail",
                 agent=to_agent,

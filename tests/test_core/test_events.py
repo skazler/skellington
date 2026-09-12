@@ -199,3 +199,27 @@ async def test_jack_emits_plan_and_route_events(monkeypatch):
 
     route_events = [e for e in events if e["type"] == "route.decided"]
     assert {e["agent"] for e in route_events} == {"sally", "oogie"}
+
+
+@pytest.mark.asyncio
+async def test_delegate_emits_agent_fail_when_agent_unregistered():
+    """An unregistered target must fail loudly — silence would score as a pass."""
+    events: list[dict[str, Any]] = []
+
+    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    state = WorkflowState(user_request="x")
+    task = Task(title="validate the thing", description="d")
+    state.add_task(task)
+
+    response = await orch.delegate(task, AgentName.LOCK, state)
+
+    assert response.success is False
+    assert "not registered" in (response.error or "")
+
+    types = [e["type"] for e in events]
+    assert types == ["agent.start", "agent.fail"]
+    assert events[1]["agent"] == "lock"
+
+    # The task must carry the failure too, not sit at PENDING forever.
+    assert task.status == TaskStatus.FAILED
+    assert task.error is not None

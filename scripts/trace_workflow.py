@@ -24,7 +24,7 @@ import time
 import structlog
 
 from skellington.agents.jack import Jack
-from skellington.core.orchestrator import AgentRegistry, Orchestrator
+from skellington.core.orchestrator import Orchestrator
 from skellington.core.types import (
     AgentName,
     AgentResponse,
@@ -179,16 +179,23 @@ async def main(verbose: bool = False) -> None:
     llm = TracingLLM()
     trace = Trace()
 
-    # NOTE: this list is copied from ui/cli.py:66 verbatim. Lock, Shock and
-    # Barrel are missing there too — watch what that does to step 3.
-    AgentRegistry._agents.clear()
-    AgentRegistry.register(Jack(llm_client=llm))
-    for name in (AgentName.SALLY, AgentName.OOGIE, AgentName.ZERO, AgentName.MAYOR):
-        AgentRegistry.register(StubAgent(name))
+    # Mirrors agents.default_agents(), but with stubs in place of the real
+    # specialists so nothing calls out. Drop a name from this tuple to watch
+    # the orchestrator report that step as agent.fail rather than dropping it.
+    specialists = (
+        AgentName.SALLY,
+        AgentName.OOGIE,
+        AgentName.ZERO,
+        AgentName.LOCK,
+        AgentName.SHOCK,
+        AgentName.BARREL,
+        AgentName.MAYOR,
+    )
+    agents = [Jack(llm_client=llm), *(StubAgent(name) for name in specialists)]
 
     print(f"\nrequest: {REQUEST}")
     rule("events")
-    orchestrator = Orchestrator(on_event=trace)
+    orchestrator = Orchestrator(agents=agents, on_event=trace)
     state = await orchestrator.run(REQUEST)
 
     rule("workflow state")

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import hashlib
 from collections import OrderedDict
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
+from typing import Any
 
 import structlog
 
@@ -34,34 +35,6 @@ logger = structlog.get_logger(__name__)
 EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
-class AgentRegistry:
-    """
-    Registry of available agents.
-
-    Agents register themselves here so the orchestrator can find them.
-    This is a simple service locator — in production you might use
-    dependency injection instead.
-    """
-
-    _agents: dict[AgentName, object] = {}
-
-    @classmethod
-    def register(cls, agent: object) -> None:
-        """Register an agent instance."""
-        cls._agents[agent.name] = agent  # type: ignore[attr-defined]
-        logger.debug("agent registered", agent=agent.name.value)  # type: ignore[attr-defined]
-
-    @classmethod
-    def get(cls, name: AgentName) -> object | None:
-        """Retrieve an agent by name."""
-        return cls._agents.get(name)
-
-    @classmethod
-    def available(cls) -> list[AgentName]:
-        """List all registered agents."""
-        return list(cls._agents.keys())
-
-
 class Orchestrator:
     """
     Top-level workflow orchestrator.
@@ -78,15 +51,29 @@ class Orchestrator:
 
     def __init__(
         self,
+        agents: Iterable[object] = (),
         on_event: EventCallback | None = None,
         cache_workflows: bool = False,
         cache_size: int = 32,
     ) -> None:
         self.log = logger.bind(component="orchestrator")
+        self._agents: dict[AgentName, object] = {a.name: a for a in agents}  # type: ignore[attr-defined]
         self._on_event = on_event
         self._cache_enabled = cache_workflows
         self._cache_size = cache_size
         self._cache: OrderedDict[str, WorkflowState] = OrderedDict()
+
+        # Jack delegates back through us, so he needs a reference. Wired once
+        # here rather than on every run(): a shared Jack mutated per-run means
+        # two orchestrators silently fight over the same instance.
+        jack = self._agents.get(AgentName.JACK)
+        if jack is not None:
+            jack._orchestrator = self  # type: ignore[attr-defined]
+
+    @property
+    def agents(self) -> list[AgentName]:
+        """Names of the agents this orchestrator can delegate to."""
+        return list(self._agents)
 
     async def emit(
         self,
@@ -139,16 +126,13 @@ class Orchestrator:
         state.add_task(root_task)
         state.active_agent = AgentName.JACK
 
-        # Get Jack and inject self so he can delegate back through us
-        jack = AgentRegistry.get(AgentName.JACK)
+        jack = self._agents.get(AgentName.JACK)
         if jack is None:
             self.log.error("Jack not registered")
             root_task.status = TaskStatus.FAILED
             root_task.error = "Orchestrator: Jack (the orchestrator agent) is not registered"
             await self.emit("workflow.complete", message="Jack not registered", success=False)
             return state
-
-        jack._orchestrator = self  # type: ignore[attr-defined]
 
         # Run Jack
         try:
@@ -208,7 +192,7 @@ class Orchestrator:
         # Looked up after agent.start so that every delegation produces a
         # start plus exactly one terminal event. A missing agent that returned
         # early here would drop the step silently and still report success.
-        agent = AgentRegistry.get(to_agent)
+        agent = self._agents.get(to_agent)
         if agent is None:
             error = f"Agent '{to_agent.value}' is not registered"
             self.log.error("delegation target not registered", to=to_agent.value)

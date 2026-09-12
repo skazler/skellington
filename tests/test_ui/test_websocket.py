@@ -30,8 +30,13 @@ def app_with_stub_jack(monkeypatch):
 
     monkeypatch.setattr(Orchestrator, "run", stub_run)
 
-    from skellington.ui.web.app import app
-    return app
+    # The endpoint builds a fresh agent set per request, which would need a
+    # real API key. run() is stubbed, so the agents are never used.
+    from skellington.ui.web import app as app_module
+
+    monkeypatch.setattr(app_module, "default_agents", list)
+
+    return app_module.app
 
 
 def test_websocket_streams_events(app_with_stub_jack):

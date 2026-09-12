@@ -59,14 +59,10 @@ def main(
 
 async def _run_request(request: str, verbose: bool = False) -> None:
     """Run a request through the full agent pipeline."""
-    from skellington.agents import Jack, Mayor, Oogie, Sally, Zero
-    from skellington.core.orchestrator import AgentRegistry, Orchestrator
+    from skellington.agents import default_agents
+    from skellington.core.orchestrator import Orchestrator
 
-    # Register all agents
-    for agent_class in [Jack, Sally, Oogie, Zero, Mayor]:
-        AgentRegistry.register(agent_class())
-
-    orchestrator = Orchestrator()
+    orchestrator = Orchestrator(agents=default_agents())
 
     console.print(
         Panel(

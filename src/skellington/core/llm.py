@@ -106,10 +106,14 @@ class AnthropicClient(LLMClient):
             kwargs["tools"] = config.tools
 
         if config.prefer_thinking and card.supports_thinking:
+            # Extended thinking pins temperature to 1; the API rejects the
+            # request if both are set, so temperature is skipped here.
             kwargs["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": config.thinking_budget_tokens,
             }
+        else:
+            kwargs["temperature"] = config.temperature
 
         log.debug("sending request")
         response = await self._client.messages.create(**kwargs)
@@ -144,6 +148,7 @@ class AnthropicClient(LLMClient):
             "model": config.model,
             "max_tokens": config.max_tokens,
             "messages": conversation,
+            "temperature": config.temperature,
         }
         if system:
             kwargs["system"] = system
@@ -151,6 +156,40 @@ class AnthropicClient(LLMClient):
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 yield text
+
+
+# ---------------------------------------------------------------------------
+# Client decorators
+# ---------------------------------------------------------------------------
+
+
+class FixedTemperatureClient(LLMClient):
+    """Forces one temperature on every call routed through this client.
+
+    Agents and subagents each build their own LLMConfig — BaseAgent defaults
+    to LLMConfig's 0.7, BaseSubAgent hardcodes 0.3 — and subagents are
+    constructed internally, so there is no call site a caller can reach to
+    make a whole run deterministic. Wrapping the client reaches all of them:
+
+        client = FixedTemperatureClient(LLMClientFactory.create(), 0.0)
+
+    Composes with UsageTrackingClient in either order.
+    """
+
+    def __init__(self, inner: LLMClient, temperature: float) -> None:
+        self._inner = inner
+        self._temperature = temperature
+        self.provider = inner.provider
+
+    def _pin(self, config: LLMConfig) -> LLMConfig:
+        return config.model_copy(update={"temperature": self._temperature})
+
+    async def complete(self, messages: list[Message], config: LLMConfig) -> LLMResponse:
+        return await self._inner.complete(messages, self._pin(config))
+
+    async def stream(self, messages: list[Message], config: LLMConfig) -> AsyncIterator[str]:
+        async for chunk in self._inner.stream(messages, self._pin(config)):
+            yield chunk
 
 
 # ---------------------------------------------------------------------------

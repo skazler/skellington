@@ -15,7 +15,6 @@ from skellington.core.batch import (
 )
 from skellington.core.types import LLMConfig, Message, MessageRole
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

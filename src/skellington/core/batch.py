@@ -15,7 +15,6 @@ opinionated wrapper, or use this primitive directly for custom bulk jobs.
 from __future__ import annotations
 
 import asyncio
-from typing import Iterable
 
 import anthropic
 import structlog

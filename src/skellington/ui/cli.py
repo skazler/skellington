@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from skellington.utils.logging import configure_logging
-from skellington.utils.themes import AGENT_EMOJIS, BANNER, SKELLINGTON_THEME
+from skellington.utils.themes import BANNER, SKELLINGTON_THEME
 
 app = typer.Typer(
     name="skellington",

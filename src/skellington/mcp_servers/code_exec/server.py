@@ -82,7 +82,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 return [TextContent(type="text", text=f"Execution timed out after {timeout}s")]
 
@@ -117,7 +117,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 return [TextContent(type="text", text=f"pytest timed out after {timeout}s")]
 

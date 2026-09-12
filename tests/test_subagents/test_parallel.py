@@ -1,7 +1,7 @@
 """Tests for parallel subagent execution."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

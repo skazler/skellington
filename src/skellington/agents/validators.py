@@ -262,7 +262,7 @@ class ValidatorCoordinator:
 
         order = (AgentName.LOCK, AgentName.SHOCK, AgentName.BARREL)
         verdicts: list[ValidationVerdict] = []
-        for agent_name, result in zip(order, results):
+        for agent_name, result in zip(order, results, strict=True):
             if isinstance(result, Exception):
                 self.log.error("validator failed", agent=agent_name.value, error=str(result))
                 verdicts.append(

@@ -9,7 +9,7 @@ flag is dead weight that drifts from reality.
 from __future__ import annotations
 
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from skellington.core.types import LLMProvider
 

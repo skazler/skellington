@@ -27,7 +27,7 @@ async def analyze_trends(data: str, data_type: str = "text") -> str:
             imports = len(re.findall(r"^(import|from)", data, re.MULTILINE))
             comments = len(re.findall(r"#.*", data))
 
-            analysis.append(f"📊 Code Analysis:")
+            analysis.append("📊 Code Analysis:")
             analysis.append(f"- Functions: {functions}")
             analysis.append(f"- Classes: {classes}")
             analysis.append(f"- Imports: {imports}")
@@ -52,7 +52,7 @@ async def analyze_trends(data: str, data_type: str = "text") -> str:
             words = data.split()
             sentences = re.split(r"[.!?]+", data)
 
-            analysis.append(f"📝 Text Analysis:")
+            analysis.append("📝 Text Analysis:")
             analysis.append(f"- Total words: {len(words)}")
             analysis.append(f"- Total sentences: {len(sentences)}")
             analysis.append(f"- Average words per sentence: {len(words)/len(sentences):.1f}")

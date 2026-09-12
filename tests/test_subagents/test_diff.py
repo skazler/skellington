@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
+from tests.conftest import make_mock_llm
 
 from skellington.subagents.diff import DiffReport, DiffSubagent
-from tests.conftest import make_mock_llm
 
 
 @pytest.mark.asyncio

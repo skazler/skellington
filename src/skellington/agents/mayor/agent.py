@@ -19,6 +19,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from skellington.agents.mayor.skills import (
+    CREATE_VISUALIZATIONS_SCHEMA,
+    FORMAT_REPORTS_SCHEMA,
+    GENERATE_DOCUMENTATION_SCHEMA,
+    create_visualizations,
+    format_reports,
+    generate_documentation,
+)
 from skellington.core.agent import BaseAgent
 from skellington.core.types import (
     AgentName,
@@ -29,17 +37,8 @@ from skellington.core.types import (
     WorkflowState,
 )
 from skellington.subagents.diff import DiffReport, DiffSubagent
-from skellington.subagents.formatter import FormattedOutput, FormatSubagent
+from skellington.subagents.formatter import FormatSubagent, FormattedOutput
 from skellington.subagents.status import StatusReport, StatusSubagent
-
-from skellington.agents.mayor.skills import (
-    CREATE_VISUALIZATIONS_SCHEMA,
-    FORMAT_REPORTS_SCHEMA,
-    GENERATE_DOCUMENTATION_SCHEMA,
-    create_visualizations,
-    format_reports,
-    generate_documentation,
-)
 
 
 class Mayor(BaseAgent):

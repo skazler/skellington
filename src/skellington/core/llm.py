@@ -11,7 +11,7 @@ The key pattern: program to an interface (LLMClient), not an implementation.
 from __future__ import annotations
 
 import abc
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import anthropic
 import openai
@@ -86,11 +86,11 @@ class AnthropicClient(LLMClient):
             if m.role != MessageRole.SYSTEM
         ]
 
-        kwargs: dict = dict(
-            model=config.model,
-            max_tokens=config.max_tokens,
-            messages=conversation,
-        )
+        kwargs: dict = {
+            "model": config.model,
+            "max_tokens": config.max_tokens,
+            "messages": conversation,
+        }
         card = get_model_card(config.model)
         if system:
             # System prompts are static per agent — caching them gives ~90%
@@ -140,7 +140,11 @@ class AnthropicClient(LLMClient):
             for m in messages
             if m.role != MessageRole.SYSTEM
         ]
-        kwargs: dict = dict(model=config.model, max_tokens=config.max_tokens, messages=conversation)
+        kwargs: dict = {
+            "model": config.model,
+            "max_tokens": config.max_tokens,
+            "messages": conversation,
+        }
         if system:
             kwargs["system"] = system
 
@@ -172,12 +176,12 @@ class OpenAIClient(LLMClient):
         for m in messages:
             conversation.append({"role": m.role.value, "content": m.content})
 
-        kwargs: dict = dict(
-            model=config.model,
-            max_tokens=config.max_tokens,
-            messages=conversation,
-            temperature=config.temperature,
-        )
+        kwargs: dict = {
+            "model": config.model,
+            "max_tokens": config.max_tokens,
+            "messages": conversation,
+            "temperature": config.temperature,
+        }
         if config.tools:
             kwargs["tools"] = config.tools
 

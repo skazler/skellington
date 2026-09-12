@@ -16,7 +16,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import structlog
 from sqlalchemy import Column, DateTime, Integer, String, Text, select

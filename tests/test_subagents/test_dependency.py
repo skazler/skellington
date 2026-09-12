@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from tests.conftest import make_mock_llm
 
 from skellington.subagents.dependency import DependencySubagent
-from tests.conftest import make_mock_llm
 
 
 @pytest.mark.asyncio

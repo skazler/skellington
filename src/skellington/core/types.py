@@ -8,19 +8,18 @@ All inter-agent communication flows through these types.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Enumerations
 # ---------------------------------------------------------------------------
 
 
-class AgentName(str, Enum):
+class AgentName(StrEnum):
     """The Halloween-ized Christmas characters."""
 
     JACK = "jack"  # Orchestrator
@@ -33,7 +32,7 @@ class AgentName(str, Enum):
     MAYOR = "mayor"  # Reporter
 
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     """Supported LLM providers."""
 
     ANTHROPIC = "anthropic"
@@ -43,7 +42,7 @@ class LLMProvider(str, Enum):
     LITELLM = "litellm"  # Catch-all via LiteLLM
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Lifecycle states for a task."""
 
     PENDING = "pending"
@@ -56,7 +55,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     """Roles in an LLM conversation."""
 
     SYSTEM = "system"
@@ -186,7 +185,7 @@ class ConsensusResult(BaseModel):
     summary: str
 
     @classmethod
-    def from_verdicts(cls, verdicts: list[ValidationVerdict]) -> "ConsensusResult":
+    def from_verdicts(cls, verdicts: list[ValidationVerdict]) -> ConsensusResult:
         passed_count = sum(1 for v in verdicts if v.passed)
         avg_score = sum(v.score for v in verdicts) / len(verdicts) if verdicts else 0.0
         passed = passed_count >= 2  # Majority rules

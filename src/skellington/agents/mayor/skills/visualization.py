@@ -76,7 +76,7 @@ async def create_visualizations(data: str, chart_type: str = "bar") -> str:
             min_val = min(values) if values else 0
             range_val = max_val - min_val if max_val != min_val else 1
 
-            for i, (label, value) in enumerate(zip(labels, values)):
+            for label, value in zip(labels, values, strict=True):
                 # Normalize to 0-10 scale
                 normalized = int(((value - min_val) / range_val) * 10) if range_val > 0 else 0
                 line = " " * normalized + "●"

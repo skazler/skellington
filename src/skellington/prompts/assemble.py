@@ -12,7 +12,7 @@ per model. The flag is what tells you whether the quirk applies.
 
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 from skellington.core.models import ModelCard
@@ -20,7 +20,7 @@ from skellington.core.models import ModelCard
 _FRAGMENTS_DIR = Path(__file__).parent / "fragments"
 
 
-@lru_cache(maxsize=None)
+@cache
 def load_fragment(name: str) -> str:
     """Read a fragment file by stem (without .md). Cached for the process lifetime."""
     path = _FRAGMENTS_DIR / f"{name}.md"

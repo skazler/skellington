@@ -75,19 +75,16 @@ async def _run_request(request: str, verbose: bool = False) -> None:
     with console.status("[jack]Jack is orchestrating...[/jack]", spinner="bouncingBall"):
         state = await orchestrator.run(request)
 
-    # Find the final result
-    root_task = state.tasks[0] if state.tasks else None
-    if root_task and root_task.result:
+    if state.final_output:
         console.print(
             Panel(
-                root_task.result,
+                state.final_output,
                 title="[mayor]🎭 Mayor's Report[/mayor]",
                 border_style="green",
             )
         )
     else:
-        error = root_task.error if root_task else "Unknown error"
-        console.print(f"[error]❌ Workflow failed: {error}[/error]")
+        console.print(f"[error]❌ Workflow failed: {state.error}[/error]")
 
 
 @app.command()

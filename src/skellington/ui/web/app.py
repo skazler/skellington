@@ -66,11 +66,10 @@ async def run_request(body: dict) -> dict:
     orchestrator = Orchestrator(agents=default_agents())
     state = await orchestrator.run(request)
 
-    root_task = state.tasks[0] if state.tasks else None
     return {
-        "success": root_task.status.value == "complete" if root_task else False,
-        "result": root_task.result if root_task else None,
-        "error": root_task.error if root_task else "No tasks created",
+        "success": state.succeeded,
+        "result": state.final_output,
+        "error": state.error,
         "task_count": len(state.tasks),
     }
 
@@ -99,14 +98,13 @@ async def websocket_run(websocket: WebSocket) -> None:
         orchestrator = Orchestrator(agents=default_agents(), on_event=forward)
         state = await orchestrator.run(request)
 
-        root_task = state.tasks[0] if state.tasks else None
         await websocket.send_json(
             {
                 "type": "result.final",
                 "agent": "jack",
-                "message": root_task.result if root_task else "",
+                "message": state.final_output or "",
                 "data": {
-                    "success": root_task.status.value == "complete" if root_task else False,
+                    "success": state.succeeded,
                     "task_count": len(state.tasks),
                 },
             }

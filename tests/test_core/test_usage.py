@@ -169,3 +169,40 @@ async def test_workflow_complete_event_carries_usage():
 
     complete = next(e for e in events if e["type"] == "workflow.complete")
     assert "usage" in complete["data"]
+
+
+# ---------------------------------------------------------------------------
+# Derived workflow output
+# ---------------------------------------------------------------------------
+
+
+def test_final_output_and_error_derive_from_the_root_task():
+    from skellington.core.types import TaskStatus
+
+    state = WorkflowState(user_request="x")
+    assert state.final_output is None
+    assert state.succeeded is False
+    assert state.error == "No tasks created"
+
+    root = Task(title="root", description="x", status=TaskStatus.COMPLETE, result="the answer")
+    state.add_task(root)
+    assert state.final_output == "the answer"
+    assert state.succeeded is True
+    assert state.error is None
+
+    root.status = TaskStatus.FAILED
+    root.error = "it broke"
+    assert state.succeeded is False, "derived, so it must track the root task"
+    assert state.error == "it broke"
+
+
+def test_derived_output_fields_survive_serialization():
+    from skellington.core.types import TaskStatus
+
+    state = WorkflowState(user_request="x")
+    state.add_task(Task(title="root", description="x", status=TaskStatus.COMPLETE, result="done"))
+
+    dumped = state.model_dump()
+    assert dumped["final_output"] == "done"
+    assert dumped["succeeded"] is True
+    assert dumped["usage"]["calls"] == 0

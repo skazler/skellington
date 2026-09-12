@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -200,6 +200,36 @@ class WorkflowState(BaseModel):
 
     def get_task(self, task_id: UUID) -> Task | None:
         return next((t for t in self.tasks if t.id == task_id), None)
+
+    @property
+    def root_task(self) -> Task | None:
+        """The task the orchestrator created for the user's request."""
+        return self.tasks[0] if self.tasks else None
+
+    # The outcome lives on the root task; these derive it rather than storing
+    # a second copy that can drift. computed_field keeps them in model_dump(),
+    # so a serialized run still carries its answer.
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def final_output(self) -> str | None:
+        """The answer to hand back to the user, or None if there isn't one."""
+        root = self.root_task
+        return root.result if root else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def succeeded(self) -> bool:
+        """Whether the workflow reached a complete root task."""
+        root = self.root_task
+        return root is not None and root.status == TaskStatus.COMPLETE
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def error(self) -> str | None:
+        """Why the workflow failed, or None if it didn't."""
+        root = self.root_task
+        return root.error if root else "No tasks created"
 
 
 # ---------------------------------------------------------------------------

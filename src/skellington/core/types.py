@@ -296,6 +296,12 @@ class LLMConfig(BaseModel):
     response_format: Literal["text", "json"] = "text"
     prefer_thinking: bool = False
     thinking_budget_tokens: int = 4096
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    """Anthropic's replacement for sampling knobs on Opus 4.7 and later.
+
+    Tunes how much thinking and how many tokens a request spends. It does not
+    make a run deterministic — nothing does on models that removed temperature.
+    """
 
 
 class LLMResponse(BaseModel):

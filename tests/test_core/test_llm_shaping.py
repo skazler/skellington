@@ -45,8 +45,10 @@ async def test_anthropic_enables_thinking_when_supported_and_requested(monkeypat
     await client.complete([Message(role=MessageRole.USER, content="hi")], cfg)
 
     kwargs = client._client.messages.create.call_args.kwargs
-    assert "thinking" in kwargs
-    assert kwargs["thinking"]["type"] == "enabled"
+    assert kwargs["thinking"] == {"type": "adaptive"}, (
+        "budget_tokens was removed on Opus 4.7 and later; sending it is a 400"
+    )
+    assert "budget_tokens" not in kwargs["thinking"]
 
 
 @pytest.mark.asyncio
@@ -149,8 +151,8 @@ async def test_openai_omits_response_format_when_text(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_anthropic_passes_temperature_through(monkeypatch):
-    """Anthropic dropped config.temperature entirely, so runs were never reproducible."""
+async def test_anthropic_omits_temperature_when_the_model_removed_it(monkeypatch):
+    """Opus 4.7 and later reject sampling params outright — a 400, not a no-op."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     from skellington.core import config as config_module
     from skellington.core.llm import AnthropicClient
@@ -163,7 +165,91 @@ async def test_anthropic_passes_temperature_through(monkeypatch):
     cfg = LLMConfig(model="claude-opus-4-7", temperature=0.0)
     await client.complete([Message(role=MessageRole.USER, content="hi")], cfg)
 
-    assert client._client.messages.create.call_args.kwargs["temperature"] == 0.0
+    assert "temperature" not in client._client.messages.create.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_anthropic_passes_temperature_to_models_that_still_take_it(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    from skellington.core import config as config_module
+    from skellington.core.llm import AnthropicClient
+    from skellington.core.models import MODELS, ModelCard
+
+    config_module.get_settings.cache_clear()
+    client = AnthropicClient()
+    client._client = MagicMock()
+    client._client.messages.create = AsyncMock(return_value=_stub_anthropic_response())
+
+    older = ModelCard(
+        id="claude-legacy",
+        provider=LLMProvider.ANTHROPIC,
+        context_window=200_000,
+        supports_sampling_params=True,
+    )
+    monkeypatch.setitem(MODELS, "claude-legacy", older)
+
+    cfg = LLMConfig(model="claude-legacy", temperature=0.25)
+    await client.complete([Message(role=MessageRole.USER, content="hi")], cfg)
+
+    assert client._client.messages.create.call_args.kwargs["temperature"] == 0.25
+
+
+@pytest.mark.asyncio
+async def test_anthropic_sends_effort_when_supported(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    from skellington.core import config as config_module
+    from skellington.core.llm import AnthropicClient
+
+    config_module.get_settings.cache_clear()
+    client = AnthropicClient()
+    client._client = MagicMock()
+    client._client.messages.create = AsyncMock(return_value=_stub_anthropic_response())
+
+    cfg = LLMConfig(model="claude-opus-4-7", effort="low")
+    await client.complete([Message(role=MessageRole.USER, content="hi")], cfg)
+
+    assert client._client.messages.create.call_args.kwargs["output_config"] == {"effort": "low"}
+
+
+@pytest.mark.asyncio
+async def test_every_kwarg_we_build_is_accepted_by_the_installed_sdk(monkeypatch):
+    """The guard that was missing.
+
+    MagicMock accepts any keyword, so a mock-only test happily asserted a
+    parameter the real SDK rejects — which is exactly how `temperature`
+    shipped and then blew up on the first live call. Check the kwargs we
+    build against the actual signature instead.
+    """
+    import inspect
+
+    from anthropic.resources.messages import AsyncMessages
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    from skellington.core import config as config_module
+    from skellington.core.llm import AnthropicClient
+    from skellington.core.models import MODELS
+
+    config_module.get_settings.cache_clear()
+    accepted = set(inspect.signature(AsyncMessages.create).parameters)
+
+    client = AnthropicClient()
+    client._client = MagicMock()
+    client._client.messages.create = AsyncMock(return_value=_stub_anthropic_response())
+
+    for cfg in [
+        LLMConfig(model="claude-opus-4-7"),
+        LLMConfig(model="claude-opus-4-7", prefer_thinking=True),
+        LLMConfig(model="claude-opus-4-7", effort="max"),
+        LLMConfig(model="claude-opus-4-7", temperature=0.0),
+        *(
+            LLMConfig(model=mid, temperature=0.9)
+            for mid, card in MODELS.items()
+            if card.provider is LLMProvider.ANTHROPIC
+        ),
+    ]:
+        await client.complete([Message(role=MessageRole.USER, content="hi")], cfg)
+        sent = set(client._client.messages.create.call_args.kwargs)
+        assert sent <= accepted, f"{cfg.model} sent unsupported kwargs: {sent - accepted}"
 
 
 @pytest.mark.asyncio
@@ -187,8 +273,8 @@ async def test_anthropic_omits_temperature_when_thinking_is_enabled(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_fixed_temperature_client_overrides_whatever_the_caller_built():
-    from skellington.core.llm import FixedTemperatureClient
+async def test_fixed_sampling_client_overrides_whatever_the_caller_built():
+    from skellington.core.llm import FixedSamplingClient
     from skellington.core.types import LLMResponse
 
     seen: list[float] = []
@@ -204,7 +290,7 @@ async def test_fixed_temperature_client_overrides_whatever_the_caller_built():
             seen.append(config.temperature)
             yield ""
 
-    client = FixedTemperatureClient(_Inner(), 0.0)
+    client = FixedSamplingClient(_Inner(), temperature=0.0)
 
     # BaseAgent's default (0.7) and BaseSubAgent's hardcoded 0.3 both get pinned.
     await client.complete([], LLMConfig(temperature=0.7))
@@ -216,8 +302,8 @@ async def test_fixed_temperature_client_overrides_whatever_the_caller_built():
 
 
 @pytest.mark.asyncio
-async def test_fixed_temperature_client_leaves_the_caller_config_untouched():
-    from skellington.core.llm import FixedTemperatureClient
+async def test_fixed_sampling_client_leaves_the_caller_config_untouched():
+    from skellington.core.llm import FixedSamplingClient
     from skellington.core.types import LLMResponse
 
     class _Inner:
@@ -230,6 +316,51 @@ async def test_fixed_temperature_client_leaves_the_caller_config_untouched():
             yield ""
 
     cfg = LLMConfig(temperature=0.7)
-    await FixedTemperatureClient(_Inner(), 0.0).complete([], cfg)
+    await FixedSamplingClient(_Inner(), temperature=0.0).complete([], cfg)
 
     assert cfg.temperature == 0.7, "the override must not mutate the caller's config"
+
+
+@pytest.mark.asyncio
+async def test_fixed_sampling_client_pins_effort():
+    from skellington.core.llm import FixedSamplingClient
+    from skellington.core.types import LLMResponse
+
+    seen: list[str | None] = []
+
+    class _Inner:
+        provider = LLMProvider.ANTHROPIC
+
+        async def complete(self, messages, config):
+            seen.append(config.effort)
+            return LLMResponse(content="", model=config.model, provider=self.provider)
+
+        async def stream(self, messages, config):
+            yield ""
+
+    client = FixedSamplingClient(_Inner(), effort="low")
+    await client.complete([], LLMConfig())
+    await client.complete([], LLMConfig(effort="max"))
+
+    assert seen == ["low", "low"]
+
+
+@pytest.mark.asyncio
+async def test_fixed_sampling_client_is_a_passthrough_when_nothing_is_pinned():
+    from skellington.core.llm import FixedSamplingClient
+    from skellington.core.types import LLMResponse
+
+    class _Inner:
+        provider = LLMProvider.ANTHROPIC
+
+        async def complete(self, messages, config):
+            return LLMResponse(content="", model=config.model, provider=self.provider)
+
+        async def stream(self, messages, config):
+            yield ""
+
+    cfg = LLMConfig(temperature=0.42, effort="high")
+    await FixedSamplingClient(_Inner()).complete([], cfg)
+
+    assert cfg.temperature == 0.42
+    assert cfg.effort == "high"

@@ -111,7 +111,12 @@ async def _run_request(request: str, verbose: bool = False) -> None:
 def eval_command(
     path: str = typer.Argument("evalsets", help="An .evalset.json file, or a directory of them"),
     case: list[str] = typer.Option(None, "--case", "-c", help="Run only these case ids"),
-    temperature: float = typer.Option(0.0, help="Pinned for every call in every run"),
+    effort: str = typer.Option(
+        None, help="Pin output_config.effort: low|medium|high|xhigh|max"
+    ),
+    temperature: float = typer.Option(
+        0.0, help="Pinned where the model still accepts it (not on Opus 4.7+)"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="List the cases without running them"),
     json_out: bool = typer.Option(False, "--json", help="Emit the report as JSON"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
@@ -130,6 +135,17 @@ def eval_command(
 
     if verbose:
         configure_logging()
+    else:
+        # A failed case is already reported as a check with its reason. Letting
+        # structlog also dump debug lines and a full rich traceback per case
+        # buries the actual report.
+        import logging
+
+        import structlog
+
+        structlog.configure(
+            wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL)
+        )
 
     target = Path(path)
     if not target.exists():
@@ -159,7 +175,7 @@ def eval_command(
         console.print("[info]Set it, or use --dry-run to list the cases without calling out.[/info]")
         raise typer.Exit(code=2)
 
-    ok = asyncio.run(_run_eval(sets, case or None, temperature, json_out))
+    ok = asyncio.run(_run_eval(sets, case or None, temperature, effort, json_out))
     raise typer.Exit(code=0 if ok else 1)
 
 
@@ -192,7 +208,13 @@ def _print_dry_run(sets: list, only: list[str] | None) -> None:
     console.print(f"[info]{count} case(s) would run. No LLM calls were made.[/info]")
 
 
-async def _run_eval(sets: list, only: list[str] | None, temperature: float, json_out: bool) -> bool:
+async def _run_eval(
+    sets: list,
+    only: list[str] | None,
+    temperature: float,
+    effort: str | None,
+    json_out: bool,
+) -> bool:
     import json as json_module
 
     from skellington.eval import run_set
@@ -229,7 +251,11 @@ async def _run_eval(sets: list, only: list[str] | None, temperature: float, json
 
         try:
             report = await run_set(
-                eval_set, temperature=temperature, only=only, on_result=report_one
+                eval_set,
+                temperature=temperature,
+                effort=effort,
+                only=only,
+                on_result=report_one,
             )
         except KeyError as exc:
             console.print(f"[error]{exc}[/error]")

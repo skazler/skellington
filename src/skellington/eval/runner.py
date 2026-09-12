@@ -8,7 +8,7 @@ previous case mutated, and the resulting scores measure the order you
 happened to write the file in.
 
 Determinism and accounting are both wired by decorating one client:
-FixedTemperatureClient pins the temperature for every call in the run
+FixedSamplingClient pins the temperature for every call in the run
 (agents and their internally-constructed subagents alike), and
 UsageTrackingClient records what each one cost.
 """
@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterable
 import structlog
 
 from skellington.agents import default_agents
-from skellington.core.llm import FixedTemperatureClient, LLMClient, LLMClientFactory
+from skellington.core.llm import FixedSamplingClient, LLMClient, LLMClientFactory
 from skellington.core.orchestrator import Orchestrator
 from skellington.core.types import Usage
 from skellington.core.usage import UsageRecorder, UsageTrackingClient
@@ -40,6 +40,7 @@ def build_runtime(
     *,
     base_client: LLMClient | None = None,
     temperature: float = 0.0,
+    effort: str | None = None,
     agents_factory: AgentsFactory | None = None,
 ) -> tuple[list[object], UsageRecorder]:
     """Build one case's agents and the recorder watching them.
@@ -53,7 +54,9 @@ def build_runtime(
     """
     inner = base_client or LLMClientFactory.create()
     recorder = UsageRecorder()
-    client = FixedTemperatureClient(UsageTrackingClient(inner, recorder), temperature)
+    client = FixedSamplingClient(
+        UsageTrackingClient(inner, recorder), temperature=temperature, effort=effort
+    )
     build = agents_factory or (lambda c: default_agents(llm_client=c))
     return build(client), recorder
 
@@ -63,6 +66,7 @@ async def run_case(
     *,
     base_client: LLMClient | None = None,
     temperature: float = 0.0,
+    effort: str | None = None,
     agents_factory: AgentsFactory | None = None,
 ) -> CaseResult:
     """Run one case and grade it.
@@ -80,7 +84,10 @@ async def run_case(
     # down with it.
     try:
         agents, recorder = build_runtime(
-            base_client=base_client, temperature=temperature, agents_factory=agents_factory
+            base_client=base_client,
+            temperature=temperature,
+            effort=effort,
+            agents_factory=agents_factory,
         )
         orchestrator = Orchestrator(agents=agents, on_event=events.append, usage=recorder)
         state = await orchestrator.run(case.request)
@@ -101,6 +108,7 @@ async def run_set(
     *,
     base_client: LLMClient | None = None,
     temperature: float = 0.0,
+    effort: str | None = None,
     agents_factory: AgentsFactory | None = None,
     only: Iterable[str] | None = None,
     on_result: object = None,
@@ -128,6 +136,7 @@ async def run_set(
             case,
             base_client=base_client,
             temperature=temperature,
+            effort=effort,
             agents_factory=agents_factory,
         )
         report.results.append(result)

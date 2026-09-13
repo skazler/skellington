@@ -16,6 +16,47 @@ from __future__ import annotations
 import json
 import re
 
+# A backslash that does not begin a valid JSON escape. Generated Python is the
+# usual source: a regex like \d, or a Windows path. json.loads rejects these
+# even with strict=False, because it is an invalid escape rather than a stray
+# control character.
+_INVALID_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
+
+# A comma before a closing brace or bracket.
+_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+
+def _repair(candidate: str) -> str:
+    """Fix the two malformations models produce most often.
+
+    Escaping a stray backslash is the only coherent reading: if it does not
+    begin a valid escape, the document is already invalid, and the author
+    meant a literal backslash. Applied only after strict and lenient parsing
+    have both failed, so well-formed input never passes through here.
+    """
+    return _TRAILING_COMMA.sub(r"\1", _INVALID_ESCAPE.sub(r"\\\\", candidate))
+
+
+def _loads(candidate: str) -> dict:
+    """Parse `candidate`, tolerating raw control characters inside strings.
+
+    A model asked for JSON containing markdown routinely emits a real newline
+    inside a string value instead of an escaped one — a markdown table is the
+    reliable trigger. json.loads rejects that as "Invalid control character",
+    which is how a perfectly well-formed report became "No valid JSON object
+    found". strict=False accepts it and changes nothing else.
+
+    Strict first, so genuinely valid JSON takes the fast, exact path.
+    """
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return json.loads(candidate, strict=False)
+    except json.JSONDecodeError:
+        return json.loads(_repair(candidate), strict=False)
+
 
 def extract_json(text: str) -> dict:
     """
@@ -27,13 +68,17 @@ def extract_json(text: str) -> dict:
     3. Extract from any ``` ... ``` code fence
     4. Find the first {...} balanced block in the string
 
+    Each attempt escalates: strict, then strict=False for the raw newlines a
+    model emits when the JSON carries markdown, then a repair pass for invalid
+    escapes and trailing commas.
+
     Raises:
         ValueError: if no valid JSON object can be found
     """
     # 1. Direct parse
     text = text.strip()
     try:
-        return json.loads(text)
+        return _loads(text)
     except json.JSONDecodeError:
         pass
 
@@ -41,7 +86,7 @@ def extract_json(text: str) -> dict:
     match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group(1))
+            return _loads(match.group(1))
         except json.JSONDecodeError:
             pass
 
@@ -49,7 +94,7 @@ def extract_json(text: str) -> dict:
     match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group(1))
+            return _loads(match.group(1))
         except json.JSONDecodeError:
             pass
 
@@ -64,7 +109,7 @@ def extract_json(text: str) -> dict:
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[start : i + 1])
+                        return _loads(text[start : i + 1])
                     except json.JSONDecodeError:
                         break
 

@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from skellington.agents.jack import Jack
-from skellington.core.types import AgentName, AgentResponse, LLMProvider, Task, WorkflowState
+from skellington.core.types import AgentName, LLMProvider, Task, WorkflowState
 from skellington.subagents.planner import Plan, PlannerSubagent
-from skellington.subagents.router import RoutingDecision, RouterSubagent
+from skellington.subagents.router import RouterSubagent, RoutingDecision
 
 
 def _make_llm(content: str = "done"):

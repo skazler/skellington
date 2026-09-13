@@ -9,7 +9,9 @@ observe-think-act loop.
 from __future__ import annotations
 
 import abc
-from typing import Any, Callable
+import inspect
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 
@@ -101,17 +103,38 @@ class BaseAgent(abc.ABC):
         name: str,
         func: Callable,
         schema: dict[str, Any],
+        description: str | None = None,
     ) -> None:
         """
         Register a callable tool that the LLM can invoke.
 
         Args:
-            name: Tool name (must match the schema name)
+            name: Tool name
             func: Async callable that implements the tool
-            schema: JSON schema dict in the provider's tool format
+            schema: JSON Schema for the tool's arguments — the `input_schema`
+                half of a tool definition, not a whole definition. Every skill
+                in this repo exports one of these. A complete definition
+                (anything carrying `input_schema`) is passed through unchanged.
+            description: What the tool does. Defaults to the first line of
+                `func`'s docstring, which is where every skill already
+                explains itself.
         """
         self._tools[name] = func
-        self._tool_schemas.append(schema)
+
+        if "input_schema" in schema:
+            definition = schema
+        else:
+            # A bare JSON Schema has type "object" at the top level. Sent as a
+            # tool definition, the API reads that as the tool's discriminator
+            # and rejects the request.
+            summary = description or (inspect.getdoc(func) or "").strip().split("\n")[0]
+            definition = {
+                "name": name,
+                "description": summary or name,
+                "input_schema": schema,
+            }
+
+        self._tool_schemas.append(definition)
         self.log.debug("registered tool", tool=name)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
@@ -166,6 +189,18 @@ class BaseAgent(abc.ABC):
         while iterations < max_iterations:
             iterations += 1
             llm_response = await self._llm.complete(messages, config)
+
+            if llm_response.stop_reason == "max_tokens":
+                self.log.error("response truncated at max_tokens", iterations=iterations)
+                return AgentResponse(
+                    agent=self.name,
+                    content=llm_response.content,
+                    success=False,
+                    error=(
+                        f"response hit max_tokens ({config.max_tokens}) and stopped "
+                        "mid-output; the result is incomplete"
+                    ),
+                )
 
             if not llm_response.tool_calls:
                 # No more tool calls — we have our final answer

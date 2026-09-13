@@ -18,7 +18,7 @@ import pytest
 
 from skellington.agents.jack import Jack
 from skellington.core.agent import BaseAgent
-from skellington.core.orchestrator import AgentRegistry, Orchestrator
+from skellington.core.orchestrator import Orchestrator
 from skellington.core.types import (
     AgentName,
     AgentResponse,
@@ -30,7 +30,6 @@ from skellington.core.types import (
     ToolCall,
     WorkflowState,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures + helpers
@@ -97,15 +96,6 @@ class _RecordingAgent:
         )
 
 
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    saved = dict(AgentRegistry._agents)
-    AgentRegistry._agents.clear()
-    yield
-    AgentRegistry._agents.clear()
-    AgentRegistry._agents.update(saved)
-
-
 def _script_for_two_step_plan(
     *,
     step_one_agent: str = "sally",
@@ -152,12 +142,8 @@ async def test_pipeline_runs_end_to_end_through_real_subagents():
     sally = _RecordingAgent(AgentName.SALLY, content="widget built")
     oogie = _RecordingAgent(AgentName.OOGIE, content="market researched")
 
-    AgentRegistry.register(jack)
-    AgentRegistry.register(sally)
-    AgentRegistry.register(oogie)
-
     events: list[dict[str, Any]] = []
-    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    orch = Orchestrator(agents=[jack, sally, oogie], on_event=lambda ev: events.append(ev))
 
     state = await orch.run("build a widget and research its market")
 
@@ -178,12 +164,14 @@ async def test_pipeline_runs_end_to_end_through_real_subagents():
 async def test_pipeline_event_ordering_invariants():
     """workflow.start is first, workflow.complete is last, plan→route→agent→synthesis ordering holds."""
     llm = _ScriptedLLM(_script_for_two_step_plan())
-    AgentRegistry.register(Jack(llm_client=llm))
-    AgentRegistry.register(_RecordingAgent(AgentName.SALLY))
-    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE))
+    agents = [
+        Jack(llm_client=llm),
+        _RecordingAgent(AgentName.SALLY),
+        _RecordingAgent(AgentName.OOGIE),
+    ]
 
     events: list[dict[str, Any]] = []
-    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    orch = Orchestrator(agents=agents, on_event=lambda ev: events.append(ev))
     await orch.run("do two things")
 
     types = [e["type"] for e in events]
@@ -209,15 +197,13 @@ async def test_pipeline_event_ordering_invariants():
 async def test_pipeline_accumulates_state_metadata_from_multiple_agents():
     """Multiple specialist agents in one workflow should each contribute their metadata section."""
     llm = _ScriptedLLM(_script_for_two_step_plan())
-    AgentRegistry.register(Jack(llm_client=llm))
-    AgentRegistry.register(
-        _RecordingAgent(AgentName.SALLY, metadata_section="builds")
-    )
-    AgentRegistry.register(
-        _RecordingAgent(AgentName.OOGIE, metadata_section="research")
-    )
+    agents = [
+        Jack(llm_client=llm),
+        _RecordingAgent(AgentName.SALLY, metadata_section="builds"),
+        _RecordingAgent(AgentName.OOGIE, metadata_section="research"),
+    ]
 
-    state = await Orchestrator().run("build then research")
+    state = await Orchestrator(agents=agents).run("build then research")
 
     assert "builds" in state.metadata
     assert "research" in state.metadata
@@ -229,12 +215,14 @@ async def test_pipeline_accumulates_state_metadata_from_multiple_agents():
 async def test_pipeline_contains_errors_when_one_agent_fails():
     """A single failing agent must not crash the workflow; workflow.complete still fires."""
     llm = _ScriptedLLM(_script_for_two_step_plan())
-    AgentRegistry.register(Jack(llm_client=llm))
-    AgentRegistry.register(_RecordingAgent(AgentName.SALLY, success=False, content=""))
-    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE, content="research ok"))
+    agents = [
+        Jack(llm_client=llm),
+        _RecordingAgent(AgentName.SALLY, success=False, content=""),
+        _RecordingAgent(AgentName.OOGIE, content="research ok"),
+    ]
 
     events: list[dict[str, Any]] = []
-    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    orch = Orchestrator(agents=agents, on_event=lambda ev: events.append(ev))
 
     state = await orch.run("build and research, build will fail")
 
@@ -261,19 +249,18 @@ async def test_pipeline_survives_router_fallback_to_unregistered_agent():
         "synthesized despite the chaos",
     ]
     llm = _ScriptedLLM(script)
-    AgentRegistry.register(Jack(llm_client=llm))
-    # Note: no mayor registered — router will fall back to mayor and delegation fails
-
+    # Note: no mayor supplied — router will fall back to mayor and delegation fails
     events: list[dict[str, Any]] = []
-    state = await Orchestrator(on_event=lambda ev: events.append(ev)).run("do a weird thing")
+    state = await Orchestrator(
+        agents=[Jack(llm_client=llm)], on_event=lambda ev: events.append(ev)
+    ).run("do a weird thing")
 
     types = [e["type"] for e in events]
     assert state.tasks[0].status == TaskStatus.COMPLETE
     assert types[-1] == "workflow.complete"
     assert "synthesis.start" in types
-    # Note: Orchestrator.delegate() currently early-returns without emitting
-    # agent.start/agent.fail when the target agent isn't registered. If that's
-    # ever fixed, this test should additionally assert "agent.fail" in types.
+    # The unroutable step must still be visible in the stream, not dropped.
+    assert "agent.fail" in types
 
 
 # ---------------------------------------------------------------------------
@@ -340,12 +327,12 @@ async def test_orchestrator_caches_successful_workflows_when_enabled():
     """A repeat request should hit the cache and skip the workflow entirely."""
     llm = _ScriptedLLM(_script_for_two_step_plan())
     sally = _RecordingAgent(AgentName.SALLY)
-    AgentRegistry.register(Jack(llm_client=llm))
-    AgentRegistry.register(sally)
-    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE))
+    agents = [Jack(llm_client=llm), sally, _RecordingAgent(AgentName.OOGIE)]
 
     events: list[dict[str, Any]] = []
-    orch = Orchestrator(on_event=lambda ev: events.append(ev), cache_workflows=True)
+    orch = Orchestrator(
+        agents=agents, on_event=lambda ev: events.append(ev), cache_workflows=True
+    )
 
     state1 = await orch.run("build a widget and research its market")
     first_run_count = sally.run_count
@@ -363,11 +350,9 @@ async def test_orchestrator_cache_is_off_by_default():
     """Default behavior preserved — no caching unless explicitly opted in."""
     llm = _ScriptedLLM(_script_for_two_step_plan() * 2)  # enough script for two runs
     sally = _RecordingAgent(AgentName.SALLY)
-    AgentRegistry.register(Jack(llm_client=llm))
-    AgentRegistry.register(sally)
-    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE))
+    agents = [Jack(llm_client=llm), sally, _RecordingAgent(AgentName.OOGIE)]
 
-    orch = Orchestrator()  # cache_workflows defaults to False
+    orch = Orchestrator(agents=agents)  # cache_workflows defaults to False
 
     await orch.run("same request")
     await orch.run("same request")
@@ -380,11 +365,9 @@ async def test_orchestrator_cache_normalizes_whitespace_and_case():
     """Trivial input variations should still hit the cache."""
     llm = _ScriptedLLM(_script_for_two_step_plan())
     sally = _RecordingAgent(AgentName.SALLY)
-    AgentRegistry.register(Jack(llm_client=llm))
-    AgentRegistry.register(sally)
-    AgentRegistry.register(_RecordingAgent(AgentName.OOGIE))
+    agents = [Jack(llm_client=llm), sally, _RecordingAgent(AgentName.OOGIE)]
 
-    orch = Orchestrator(cache_workflows=True)
+    orch = Orchestrator(agents=agents, cache_workflows=True)
     await orch.run("Build a widget   and research its market")
     await orch.run("build a widget and research its market\n")
 

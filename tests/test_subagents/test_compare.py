@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 
 import pytest
-
-from skellington.subagents.compare import Comparison, CompareSubagent
 from tests.conftest import make_mock_llm
+
+from skellington.subagents.compare import CompareSubagent, Comparison
 
 
 @pytest.mark.asyncio

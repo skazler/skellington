@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 
 import pytest
-
-from skellington.subagents.formatter import FormattedOutput, FormatSubagent
 from tests.conftest import make_mock_llm
+
+from skellington.subagents.formatter import FormatSubagent, FormattedOutput
 
 
 @pytest.mark.asyncio

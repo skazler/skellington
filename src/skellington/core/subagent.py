@@ -24,7 +24,7 @@ from typing import Any, Generic, TypeVar
 import structlog
 
 from skellington.core.config import get_settings
-from skellington.core.llm import LLMClient, LLMClientFactory
+from skellington.core.llm import LLMClient, LLMClientFactory, TruncatedResponseError
 from skellington.core.types import (
     AgentName,
     LLMConfig,
@@ -99,6 +99,17 @@ class BaseSubAgent(abc.ABC, Generic[T]):
             temperature=temperature,
         )
         response = await self._llm.complete(messages, config)
+        if response.stop_reason == "max_tokens":
+            self.log.error(
+                "response truncated at max_tokens",
+                max_tokens=config.max_tokens,
+                chars=len(response.content),
+            )
+            raise TruncatedResponseError(
+                f"{self.name} response hit max_tokens ({config.max_tokens}) and "
+                f"stopped after {len(response.content)} characters; the output is "
+                "incomplete. Raise LLMConfig.max_tokens or ask for less at once."
+            )
         return response.content
 
     def __repr__(self) -> str:

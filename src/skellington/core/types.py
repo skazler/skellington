@@ -8,19 +8,18 @@ All inter-agent communication flows through these types.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, computed_field
 
 # ---------------------------------------------------------------------------
 # Enumerations
 # ---------------------------------------------------------------------------
 
 
-class AgentName(str, Enum):
+class AgentName(StrEnum):
     """The Halloween-ized Christmas characters."""
 
     JACK = "jack"  # Orchestrator
@@ -33,7 +32,7 @@ class AgentName(str, Enum):
     MAYOR = "mayor"  # Reporter
 
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     """Supported LLM providers."""
 
     ANTHROPIC = "anthropic"
@@ -43,7 +42,7 @@ class LLMProvider(str, Enum):
     LITELLM = "litellm"  # Catch-all via LiteLLM
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Lifecycle states for a task."""
 
     PENDING = "pending"
@@ -56,7 +55,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     """Roles in an LLM conversation."""
 
     SYSTEM = "system"
@@ -95,6 +94,59 @@ class ToolResult(BaseModel):
     name: str
     content: str
     is_error: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Usage Accounting
+# ---------------------------------------------------------------------------
+
+
+class ModelUsage(BaseModel):
+    """Tokens attributed to a single model id."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class Usage(BaseModel):
+    """Token totals for a run, with a per-model breakdown.
+
+    The breakdown is what makes the cheap-subagent levers (PLANNER_MODEL,
+    ROUTER_MODEL) measurable rather than merely plausible.
+    """
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    by_model: dict[str, ModelUsage] = Field(default_factory=dict)
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+    def since(self, earlier: Usage) -> Usage:
+        """Usage accumulated after `earlier` was snapshotted.
+
+        Recorders outlive a single workflow, so a run reports its own delta
+        rather than the recorder's running totals.
+        """
+        by_model: dict[str, ModelUsage] = {}
+        for model, now in self.by_model.items():
+            was = earlier.by_model.get(model, ModelUsage())
+            delta = ModelUsage(
+                calls=now.calls - was.calls,
+                input_tokens=now.input_tokens - was.input_tokens,
+                output_tokens=now.output_tokens - was.output_tokens,
+            )
+            if delta.calls:
+                by_model[model] = delta
+        return Usage(
+            calls=self.calls - earlier.calls,
+            input_tokens=self.input_tokens - earlier.input_tokens,
+            output_tokens=self.output_tokens - earlier.output_tokens,
+            by_model=by_model,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +190,7 @@ class WorkflowState(BaseModel):
     messages: list[Message] = Field(default_factory=list)
     active_agent: AgentName | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    usage: Usage = Field(default_factory=Usage)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -147,6 +200,36 @@ class WorkflowState(BaseModel):
 
     def get_task(self, task_id: UUID) -> Task | None:
         return next((t for t in self.tasks if t.id == task_id), None)
+
+    @property
+    def root_task(self) -> Task | None:
+        """The task the orchestrator created for the user's request."""
+        return self.tasks[0] if self.tasks else None
+
+    # The outcome lives on the root task; these derive it rather than storing
+    # a second copy that can drift. computed_field keeps them in model_dump(),
+    # so a serialized run still carries its answer.
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def final_output(self) -> str | None:
+        """The answer to hand back to the user, or None if there isn't one."""
+        root = self.root_task
+        return root.result if root else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def succeeded(self) -> bool:
+        """Whether the workflow reached a complete root task."""
+        root = self.root_task
+        return root is not None and root.status == TaskStatus.COMPLETE
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def error(self) -> str | None:
+        """Why the workflow failed, or None if it didn't."""
+        root = self.root_task
+        return root.error if root else "No tasks created"
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +269,7 @@ class ConsensusResult(BaseModel):
     summary: str
 
     @classmethod
-    def from_verdicts(cls, verdicts: list[ValidationVerdict]) -> "ConsensusResult":
+    def from_verdicts(cls, verdicts: list[ValidationVerdict]) -> ConsensusResult:
         passed_count = sum(1 for v in verdicts if v.passed)
         avg_score = sum(v.score for v in verdicts) / len(verdicts) if verdicts else 0.0
         passed = passed_count >= 2  # Majority rules
@@ -204,7 +287,14 @@ class LLMConfig(BaseModel):
 
     provider: LLMProvider = LLMProvider.ANTHROPIC
     model: str = "claude-opus-4-7"
-    max_tokens: int = 4096
+    max_tokens: int = 16000
+    """Ceiling on a single response.
+
+    4096 was too low for the work these subagents do — a codegen subagent
+    returns a whole source file inside a JSON string, and a formatter returns
+    a full markdown report. Both blew the cap, and the truncated text then
+    failed to parse as JSON with an error that never mentioned truncation.
+    """
     temperature: float = 0.7
     system_prompt: str | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
@@ -213,6 +303,12 @@ class LLMConfig(BaseModel):
     response_format: Literal["text", "json"] = "text"
     prefer_thinking: bool = False
     thinking_budget_tokens: int = 4096
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    """Anthropic's replacement for sampling knobs on Opus 4.7 and later.
+
+    Tunes how much thinking and how many tokens a request spends. It does not
+    make a run deterministic — nothing does on models that removed temperature.
+    """
 
 
 class LLMResponse(BaseModel):

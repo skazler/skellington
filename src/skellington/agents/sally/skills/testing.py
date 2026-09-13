@@ -54,10 +54,10 @@ async def generate_unit_tests(function_code: str, function_name: str) -> str:
         \"\"\"Test basic functionality of {function_name}.\"\"\"
         # Arrange
 {arrange_section}
-        
+
         # Act
         result = {function_name}({act_params})
-        
+
         # Assert
         self.assertIsNotNone(result)  # Basic smoke test
 """)
@@ -76,7 +76,7 @@ async def generate_unit_tests(function_code: str, function_name: str) -> str:
         \"\"\"Test {function_name} with empty string inputs.\"\"\"
         # Arrange
 {edge_arrange_section}
-        
+
         # Act & Assert
         with self.assertRaises(ValueError):
             {function_name}({act_params})
@@ -89,7 +89,7 @@ async def generate_unit_tests(function_code: str, function_name: str) -> str:
         \"\"\"Test error handling in {function_name}.\"\"\"
         # Arrange
 {error_arrange}
-        
+
         # Act & Assert
         with self.assertRaises((TypeError, ValueError)):
             {function_name}({act_params})
@@ -100,7 +100,7 @@ from {function_name.split('_')[0]}_module import {function_name}
 
 class Test{function_name.title().replace('_', '')}(unittest.TestCase):
     \"\"\"Unit tests for {function_name} function.\"\"\"
-    
+
 {"".join(test_cases)}{error_test}
 if __name__ == '__main__':
     unittest.main()

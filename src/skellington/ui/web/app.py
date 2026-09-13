@@ -15,21 +15,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from skellington.core.orchestrator import AgentRegistry, Orchestrator
-from skellington.agents import Jack, Sally, Oogie, Zero, Mayor
+from skellington.agents import default_agents
+from skellington.core.orchestrator import Orchestrator
 
 app = FastAPI(
     title="Skellington",
     description="🎃 Multi-agent AI orchestration with Halloween-ized Christmas characters",
     version="0.1.0",
 )
-
-
-# Register agents on startup
-@app.on_event("startup")
-async def startup() -> None:
-    for agent_class in [Jack, Sally, Oogie, Zero, Mayor]:
-        AgentRegistry.register(agent_class())
 
 
 # Static files & templates
@@ -70,14 +63,13 @@ async def run_request(body: dict) -> dict:
     if not request:
         return {"error": "request is required"}
 
-    orchestrator = Orchestrator()
+    orchestrator = Orchestrator(agents=default_agents())
     state = await orchestrator.run(request)
 
-    root_task = state.tasks[0] if state.tasks else None
     return {
-        "success": root_task.status.value == "complete" if root_task else False,
-        "result": root_task.result if root_task else None,
-        "error": root_task.error if root_task else "No tasks created",
+        "success": state.succeeded,
+        "result": state.final_output,
+        "error": state.error,
         "task_count": len(state.tasks),
     }
 
@@ -103,17 +95,16 @@ async def websocket_run(websocket: WebSocket) -> None:
             except Exception:  # noqa: BLE001 — client gone; let the workflow finish
                 pass
 
-        orchestrator = Orchestrator(on_event=forward)
+        orchestrator = Orchestrator(agents=default_agents(), on_event=forward)
         state = await orchestrator.run(request)
 
-        root_task = state.tasks[0] if state.tasks else None
         await websocket.send_json(
             {
                 "type": "result.final",
                 "agent": "jack",
-                "message": root_task.result if root_task else "",
+                "message": state.final_output or "",
                 "data": {
-                    "success": root_task.status.value == "complete" if root_task else False,
+                    "success": state.succeeded,
                     "task_count": len(state.tasks),
                 },
             }

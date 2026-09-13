@@ -1,8 +1,7 @@
 """Tests for configuration management."""
 
-import pytest
 
-from skellington.core.config import Settings, get_settings
+from skellington.core.config import Settings
 from skellington.core.types import LLMProvider
 
 

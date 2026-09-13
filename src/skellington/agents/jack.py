@@ -34,7 +34,7 @@ from skellington.core.types import (
     WorkflowState,
 )
 from skellington.subagents.planner import Plan, PlannerSubagent
-from skellington.subagents.router import RoutingDecision, RouterSubagent
+from skellington.subagents.router import RouterSubagent, RoutingDecision
 
 if TYPE_CHECKING:
     from skellington.core.orchestrator import Orchestrator
@@ -129,7 +129,7 @@ Always explain your plan before executing it."""
 
         # 3. Delegate each step sequentially
         responses: list[tuple[str, AgentResponse]] = []
-        for step, decision in zip(plan.steps, routing_decisions):
+        for step, decision in zip(plan.steps, routing_decisions, strict=True):
             if isinstance(decision, Exception):
                 self.log.warning("routing failed for step", step=step, error=str(decision))
                 await self._emit("route.failed", message=step[:80])

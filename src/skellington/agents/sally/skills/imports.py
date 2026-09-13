@@ -140,7 +140,7 @@ async def optimize_imports(code: str) -> str:
         original_import_count = len(imports) + len(import_froms)
         optimized_import_count = len(optimized_imports) + len(optimized_import_froms)
 
-        report = f"Import optimization complete:\\n"
+        report = "Import optimization complete:\\n"
         report += f"- Original imports: {original_import_count}\\n"
         report += f"- Optimized imports: {optimized_import_count}\\n"
         report += f"- Removed {original_import_count - optimized_import_count} unused imports\\n\\n"

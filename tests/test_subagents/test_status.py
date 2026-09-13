@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
+from tests.conftest import make_mock_llm
 
 from skellington.core.types import Task, TaskStatus, WorkflowState
 from skellington.subagents.status import StatusReport, StatusSubagent
-from tests.conftest import make_mock_llm
 
 
 def _state_with(statuses: list[TaskStatus]) -> WorkflowState:

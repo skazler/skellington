@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import hashlib
 from collections import OrderedDict
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
+from typing import Any
 
 import structlog
 
@@ -24,6 +25,7 @@ from skellington.core.types import (
     TaskStatus,
     WorkflowState,
 )
+from skellington.core.usage import UsageRecorder
 
 logger = structlog.get_logger(__name__)
 
@@ -32,34 +34,6 @@ logger = structlog.get_logger(__name__)
 # to a WebSocket; tests pass a list-appender. Sync callbacks also work
 # (we await whatever the call returns; non-coroutines are tolerated).
 EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
-
-
-class AgentRegistry:
-    """
-    Registry of available agents.
-
-    Agents register themselves here so the orchestrator can find them.
-    This is a simple service locator — in production you might use
-    dependency injection instead.
-    """
-
-    _agents: dict[AgentName, object] = {}
-
-    @classmethod
-    def register(cls, agent: object) -> None:
-        """Register an agent instance."""
-        cls._agents[agent.name] = agent  # type: ignore[attr-defined]
-        logger.debug("agent registered", agent=agent.name.value)  # type: ignore[attr-defined]
-
-    @classmethod
-    def get(cls, name: AgentName) -> object | None:
-        """Retrieve an agent by name."""
-        return cls._agents.get(name)
-
-    @classmethod
-    def available(cls) -> list[AgentName]:
-        """List all registered agents."""
-        return list(cls._agents.keys())
 
 
 class Orchestrator:
@@ -78,15 +52,31 @@ class Orchestrator:
 
     def __init__(
         self,
+        agents: Iterable[object] = (),
         on_event: EventCallback | None = None,
+        usage: UsageRecorder | None = None,
         cache_workflows: bool = False,
         cache_size: int = 32,
     ) -> None:
         self.log = logger.bind(component="orchestrator")
+        self._usage = usage
+        self._agents: dict[AgentName, object] = {a.name: a for a in agents}  # type: ignore[attr-defined]
         self._on_event = on_event
         self._cache_enabled = cache_workflows
         self._cache_size = cache_size
         self._cache: OrderedDict[str, WorkflowState] = OrderedDict()
+
+        # Jack delegates back through us, so he needs a reference. Wired once
+        # here rather than on every run(): a shared Jack mutated per-run means
+        # two orchestrators silently fight over the same instance.
+        jack = self._agents.get(AgentName.JACK)
+        if jack is not None:
+            jack._orchestrator = self  # type: ignore[attr-defined]
+
+    @property
+    def agents(self) -> list[AgentName]:
+        """Names of the agents this orchestrator can delegate to."""
+        return list(self._agents)
 
     async def emit(
         self,
@@ -128,6 +118,10 @@ class Orchestrator:
         self.log.info("starting workflow", request=user_request[:100])
         await self.emit("workflow.start", message=user_request)
 
+        # Recorders are wired into the agents' LLM client and outlive any one
+        # workflow, so a run reports the delta it is responsible for.
+        usage_before = self._usage.snapshot() if self._usage else None
+
         state = WorkflowState(user_request=user_request)
 
         # Create the root task
@@ -139,16 +133,20 @@ class Orchestrator:
         state.add_task(root_task)
         state.active_agent = AgentName.JACK
 
-        # Get Jack and inject self so he can delegate back through us
-        jack = AgentRegistry.get(AgentName.JACK)
+        jack = self._agents.get(AgentName.JACK)
         if jack is None:
             self.log.error("Jack not registered")
             root_task.status = TaskStatus.FAILED
             root_task.error = "Orchestrator: Jack (the orchestrator agent) is not registered"
-            await self.emit("workflow.complete", message="Jack not registered", success=False)
+            # Same payload shape as the normal exit — consumers parse one event.
+            await self.emit(
+                "workflow.complete",
+                message=root_task.error,
+                success=False,
+                task_count=len(state.tasks),
+                usage=state.usage.model_dump(),
+            )
             return state
-
-        jack._orchestrator = self  # type: ignore[attr-defined]
 
         # Run Jack
         try:
@@ -163,12 +161,16 @@ class Orchestrator:
             root_task.status = TaskStatus.FAILED
             root_task.error = str(exc)
 
+        if self._usage is not None and usage_before is not None:
+            state.usage = self._usage.snapshot().since(usage_before)
+
         self.log.info("workflow complete", status=root_task.status.value)
         await self.emit(
             "workflow.complete",
             message=root_task.result or root_task.error or "",
             success=root_task.status == TaskStatus.COMPLETE,
             task_count=len(state.tasks),
+            usage=state.usage.model_dump(),
         )
 
         # Only cache successful workflows — caching failures would make a
@@ -198,16 +200,6 @@ class Orchestrator:
 
         Called by Jack when routing subtasks to Sally, Oogie, Zero, etc.
         """
-        agent = AgentRegistry.get(to_agent)
-        if agent is None:
-            return AgentResponse(
-                agent=to_agent,
-                task_id=task.id,
-                content="",
-                success=False,
-                error=f"Agent '{to_agent.value}' is not registered",
-            )
-
         task.assigned_to = to_agent
         task.status = TaskStatus.DELEGATED
         state.active_agent = to_agent
@@ -215,14 +207,37 @@ class Orchestrator:
         self.log.info("delegating task", task=task.title, to=to_agent.value)
         await self.emit("agent.start", agent=to_agent, message=task.title)
 
+        # Looked up after agent.start so that every delegation produces a
+        # start plus exactly one terminal event. A missing agent that returned
+        # early here would drop the step silently and still report success.
+        agent = self._agents.get(to_agent)
+        if agent is None:
+            error = f"Agent '{to_agent.value}' is not registered"
+            self.log.error("delegation target not registered", to=to_agent.value)
+            task.status = TaskStatus.FAILED
+            task.error = error
+            await self.emit("agent.fail", agent=to_agent, message=error, success=False)
+            return AgentResponse(
+                agent=to_agent,
+                task_id=task.id,
+                content="",
+                success=False,
+                error=error,
+            )
+
         try:
             response = await agent.run(task, state)  # type: ignore[attr-defined]
             task.status = TaskStatus.COMPLETE if response.success else TaskStatus.FAILED
             task.result = response.content
+            if not response.success:
+                task.error = response.error
+            # A failed response carries its reason in .error, and usually has
+            # empty .content — reporting content would say nothing at all.
+            detail = response.content if response.success else (response.error or "")
             await self.emit(
                 "agent.complete" if response.success else "agent.fail",
                 agent=to_agent,
-                message=(response.content or "")[:200],
+                message=(detail or "")[:200],
                 success=response.success,
             )
             return response

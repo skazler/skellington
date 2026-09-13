@@ -12,7 +12,7 @@ google-generativeai>=0.8.0
 litellm>=1.50.0
 
 # MCP — Model Context Protocol
-mcp>=1.0.0
+mcp>=1.0.0,<2.0.0
 
 # Data validation & settings
 pydantic>=2.8.0

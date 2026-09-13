@@ -30,7 +30,7 @@ dependencies = [
     "litellm>=1.50.0",         # Multi-provider abstraction
 
     # MCP
-    "mcp>=1.0.0",              # Model Context Protocol SDK
+    "mcp>=1.0.0,<2.0.0",     # Model Context Protocol SDK — 2.x removed the lowlevel Server decorator API
 
     # Data validation & settings
     "pydantic>=2.8.0",
@@ -102,6 +102,11 @@ ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["skellington"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer declares CLI options as argument defaults; the call is declarative,
+# not a mutable default being shared between invocations.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 # --- Black ---
 [tool.black]

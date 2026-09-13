@@ -5,11 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
+from tests.conftest import make_mock_llm
 
 from skellington.agents.validators import Barrel, Lock, Shock, ValidatorCoordinator
 from skellington.core.types import AgentName, Task, ValidationVerdict, WorkflowState
-from tests.conftest import make_mock_llm
-
 
 # ---------------------------------------------------------------------------
 # Individual validator agents

@@ -11,14 +11,14 @@ The key pattern: program to an interface (LLMClient), not an implementation.
 from __future__ import annotations
 
 import abc
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import anthropic
 import openai
 import structlog
 
 from skellington.core.config import get_settings
-from skellington.core.models import get_model_card
+from skellington.core.models import ModelCard, get_model_card
 from skellington.core.types import (
     LLMConfig,
     LLMProvider,
@@ -34,6 +34,16 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Abstract base
 # ---------------------------------------------------------------------------
+
+
+class TruncatedResponseError(RuntimeError):
+    """A response hit max_tokens and stopped mid-output.
+
+    Worth its own type because the downstream symptom is misleading: 15 of
+    this repo's 18 subagents parse the response as JSON, so a truncated reply
+    surfaces as "No valid JSON object found" and sends you looking at the
+    parser instead of at the token cap.
+    """
 
 
 class LLMClient(abc.ABC):
@@ -64,6 +74,18 @@ class LLMClient(abc.ABC):
 # ---------------------------------------------------------------------------
 
 
+def _thinking_param(card: ModelCard, config: LLMConfig) -> dict:
+    """Build the thinking block in the form this model accepts.
+
+    budget_tokens was removed on Opus 4.7 and later; sending it returns a 400.
+    Adaptive thinking lets the model decide how much to think, which is why
+    there is no budget to pass.
+    """
+    if card.thinking_style == "adaptive":
+        return {"type": "adaptive"}
+    return {"type": "enabled", "budget_tokens": config.thinking_budget_tokens}
+
+
 class AnthropicClient(LLMClient):
     """Claude via the Anthropic API."""
 
@@ -73,7 +95,15 @@ class AnthropicClient(LLMClient):
         settings = get_settings()
         if not settings.anthropic_api_key:
             raise ValueError("ANTHROPIC_API_KEY is not set")
-        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        headers = (
+            {"anthropic-workspace-id": settings.anthropic_workspace_id}
+            if settings.anthropic_workspace_id
+            else None
+        )
+        self._client = anthropic.AsyncAnthropic(
+            api_key=settings.anthropic_api_key,
+            default_headers=headers,
+        )
 
     async def complete(self, messages: list[Message], config: LLMConfig) -> LLMResponse:
         log = logger.bind(provider="anthropic", model=config.model)
@@ -86,11 +116,11 @@ class AnthropicClient(LLMClient):
             if m.role != MessageRole.SYSTEM
         ]
 
-        kwargs: dict = dict(
-            model=config.model,
-            max_tokens=config.max_tokens,
-            messages=conversation,
-        )
+        kwargs: dict = {
+            "model": config.model,
+            "max_tokens": config.max_tokens,
+            "messages": conversation,
+        }
         card = get_model_card(config.model)
         if system:
             # System prompts are static per agent — caching them gives ~90%
@@ -106,10 +136,14 @@ class AnthropicClient(LLMClient):
             kwargs["tools"] = config.tools
 
         if config.prefer_thinking and card.supports_thinking:
-            kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": config.thinking_budget_tokens,
-            }
+            kwargs["thinking"] = _thinking_param(card, config)
+        elif card.supports_sampling_params:
+            # Anthropic removed temperature from Opus 4.7 onward — sending it
+            # is a 400, not a silently ignored field.
+            kwargs["temperature"] = config.temperature
+
+        if config.effort is not None and card.supports_effort:
+            kwargs["output_config"] = {"effort": config.effort}
 
         log.debug("sending request")
         response = await self._client.messages.create(**kwargs)
@@ -140,13 +174,71 @@ class AnthropicClient(LLMClient):
             for m in messages
             if m.role != MessageRole.SYSTEM
         ]
-        kwargs: dict = dict(model=config.model, max_tokens=config.max_tokens, messages=conversation)
+        card = get_model_card(config.model)
+        kwargs: dict = {
+            "model": config.model,
+            "max_tokens": config.max_tokens,
+            "messages": conversation,
+        }
+        if card.supports_sampling_params:
+            kwargs["temperature"] = config.temperature
+        if config.effort is not None and card.supports_effort:
+            kwargs["output_config"] = {"effort": config.effort}
         if system:
             kwargs["system"] = system
 
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 yield text
+
+
+# ---------------------------------------------------------------------------
+# Client decorators
+# ---------------------------------------------------------------------------
+
+
+class FixedSamplingClient(LLMClient):
+    """Pins sampling settings on every call routed through this client.
+
+    Agents and subagents each build their own LLMConfig — BaseAgent defaults
+    to LLMConfig's 0.7, BaseSubAgent hardcodes 0.3 — and subagents are
+    constructed internally, so there is no call site a caller can reach to
+    settle a whole run. Wrapping the client reaches all of them:
+
+        client = FixedSamplingClient(LLMClientFactory.create(), effort="low")
+
+    Composes with UsageTrackingClient in either order.
+
+    Note what this cannot do: current Anthropic models removed temperature, so
+    pinning it is a no-op there (the client drops it by capability flag). No
+    setting makes those models reproducible — effort tunes depth and spend.
+    """
+
+    def __init__(
+        self,
+        inner: LLMClient,
+        temperature: float | None = None,
+        effort: str | None = None,
+    ) -> None:
+        self._inner = inner
+        self._temperature = temperature
+        self._effort = effort
+        self.provider = inner.provider
+
+    def _pin(self, config: LLMConfig) -> LLMConfig:
+        update: dict = {}
+        if self._temperature is not None:
+            update["temperature"] = self._temperature
+        if self._effort is not None:
+            update["effort"] = self._effort
+        return config.model_copy(update=update) if update else config
+
+    async def complete(self, messages: list[Message], config: LLMConfig) -> LLMResponse:
+        return await self._inner.complete(messages, self._pin(config))
+
+    async def stream(self, messages: list[Message], config: LLMConfig) -> AsyncIterator[str]:
+        async for chunk in self._inner.stream(messages, self._pin(config)):
+            yield chunk
 
 
 # ---------------------------------------------------------------------------
@@ -172,16 +264,17 @@ class OpenAIClient(LLMClient):
         for m in messages:
             conversation.append({"role": m.role.value, "content": m.content})
 
-        kwargs: dict = dict(
-            model=config.model,
-            max_tokens=config.max_tokens,
-            messages=conversation,
-            temperature=config.temperature,
-        )
+        kwargs: dict = {
+            "model": config.model,
+            "max_tokens": config.max_tokens,
+            "messages": conversation,
+        }
+        card = get_model_card(config.model)
+        if card.supports_sampling_params:
+            kwargs["temperature"] = config.temperature
         if config.tools:
             kwargs["tools"] = config.tools
 
-        card = get_model_card(config.model)
         if config.response_format == "json" and card.supports_native_json:
             kwargs["response_format"] = {"type": "json_object"}
 

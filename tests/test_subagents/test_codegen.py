@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from tests.conftest import make_mock_llm
 
 from skellington.subagents.codegen import CodeGenSubagent, GeneratedCode
-from tests.conftest import make_mock_llm
 
 
 @pytest.mark.asyncio

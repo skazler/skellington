@@ -5,22 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from skellington.core.agent import BaseAgent
-from skellington.core.llm import LLMClient
-from skellington.core.types import (
-    AgentName,
-    AgentResponse,
-    LLMProvider,
-    Message,
-    MessageRole,
-    Task,
-    WorkflowState,
-)
-from skellington.mcp_servers.filesystem import tools as _default_fs
-from skellington.subagents.codegen import CodeGenSubagent, GeneratedCode
-from skellington.subagents.refactor import RefactoredCode, RefactorSubagent
-from skellington.subagents.scaffold import ScaffoldPlan, ScaffoldSubagent
-
 from skellington.agents.sally.skills import (
     CHECK_CODE_STYLE_SCHEMA,
     GENERATE_UNIT_TESTS_SCHEMA,
@@ -29,6 +13,19 @@ from skellington.agents.sally.skills import (
     generate_unit_tests,
     optimize_imports,
 )
+from skellington.core.agent import BaseAgent
+from skellington.core.llm import LLMClient
+from skellington.core.types import (
+    AgentName,
+    AgentResponse,
+    LLMProvider,
+    Task,
+    WorkflowState,
+)
+from skellington.mcp_servers.filesystem import tools as _default_fs
+from skellington.subagents.codegen import CodeGenSubagent, GeneratedCode
+from skellington.subagents.refactor import RefactoredCode, RefactorSubagent
+from skellington.subagents.scaffold import ScaffoldPlan, ScaffoldSubagent
 
 _SCAFFOLD_KEYWORDS = (
     "scaffold",
@@ -111,7 +108,7 @@ You have access to these skills:
 
 When given a task, you delegate to your subagents:
 - CodeGenSubagent: for writing new code
-- RefactorSubagent: for improving existing code  
+- RefactorSubagent: for improving existing code
 - ScaffoldSubagent: for project structure creation"""
 
     async def run(self, task: Task, state: WorkflowState) -> AgentResponse:
@@ -164,8 +161,11 @@ When given a task, you delegate to your subagents:
         written: list[str] = []
         project_root = Path(output_dir) / plan.project_name
         for rel_path, content in plan.files.items():
-            # Guard against absolute paths or escape sequences from the LLM.
-            safe_rel = Path(rel_path.lstrip("/\\\\"))
+            # Guard against absolute paths from the LLM. The character set is
+            # intentional — strip any leading "/" or "\\". Traversal ("../..") is
+            # caught downstream by tools._ensure_allowed, which resolves before
+            # checking the path against the allowed roots.
+            safe_rel = Path(rel_path.lstrip("/\\\\"))  # noqa: B005
             target = project_root / safe_rel
             written.append(await self._fs.write_file(str(target), content))
         return written, f"Scaffolded '{plan.project_name}' with {len(written)} files"

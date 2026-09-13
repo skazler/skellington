@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from skellington.agents.jack import Jack
-from skellington.core.orchestrator import AgentRegistry, Orchestrator
+from skellington.core.orchestrator import Orchestrator
 from skellington.core.types import (
     AgentName,
     AgentResponse,
@@ -35,16 +35,6 @@ class _FakeAgent:
             success=self._success,
             error=None if self._success else "boom",
         )
-
-
-@pytest.fixture(autouse=True)
-def _clear_registry():
-    """Reset the agent registry around each test."""
-    saved = dict(AgentRegistry._agents)
-    AgentRegistry._agents.clear()
-    yield
-    AgentRegistry._agents.clear()
-    AgentRegistry._agents.update(saved)
 
 
 @pytest.mark.asyncio
@@ -115,9 +105,10 @@ async def test_run_emits_workflow_start_and_complete_when_jack_missing():
 async def test_delegate_emits_agent_lifecycle():
     """Orchestrator.delegate should emit agent.start then agent.complete on success."""
     events: list[dict[str, Any]] = []
-    AgentRegistry.register(_FakeAgent(AgentName.SALLY, content="built it"))
-
-    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    orch = Orchestrator(
+        agents=[_FakeAgent(AgentName.SALLY, content="built it")],
+        on_event=lambda ev: events.append(ev),
+    )
     state = WorkflowState(user_request="x")
     task = Task(title="do a thing", description="d", assigned_to=AgentName.SALLY)
     state.add_task(task)
@@ -134,9 +125,10 @@ async def test_delegate_emits_agent_lifecycle():
 @pytest.mark.asyncio
 async def test_delegate_emits_agent_fail_on_failure():
     events: list[dict[str, Any]] = []
-    AgentRegistry.register(_FakeAgent(AgentName.SALLY, content="", success=False))
-
-    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    orch = Orchestrator(
+        agents=[_FakeAgent(AgentName.SALLY, content="", success=False)],
+        on_event=lambda ev: events.append(ev),
+    )
     state = WorkflowState(user_request="x")
     task = Task(title="do a thing", description="d", assigned_to=AgentName.SALLY)
     state.add_task(task)
@@ -173,18 +165,19 @@ async def test_jack_emits_plan_and_route_events(monkeypatch):
 
     monkeypatch.setattr(Jack, "_synthesize", fake_synthesize)
 
-    AgentRegistry.register(_FakeAgent(AgentName.SALLY, content="built"))
-    AgentRegistry.register(_FakeAgent(AgentName.OOGIE, content="researched"))
-
     # Minimal LLM mock so BaseAgent constructor is happy
     llm = MagicMock()
     llm.provider = LLMProvider.ANTHROPIC
     llm.complete = AsyncMock()
 
-    jack = Jack(llm_client=llm)
-    AgentRegistry.register(jack)
-
-    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    orch = Orchestrator(
+        agents=[
+            Jack(llm_client=llm),
+            _FakeAgent(AgentName.SALLY, content="built"),
+            _FakeAgent(AgentName.OOGIE, content="researched"),
+        ],
+        on_event=lambda ev: events.append(ev),
+    )
     await orch.run("please do both")
 
     types = [e["type"] for e in events]
@@ -199,3 +192,27 @@ async def test_jack_emits_plan_and_route_events(monkeypatch):
 
     route_events = [e for e in events if e["type"] == "route.decided"]
     assert {e["agent"] for e in route_events} == {"sally", "oogie"}
+
+
+@pytest.mark.asyncio
+async def test_delegate_emits_agent_fail_when_agent_unregistered():
+    """An unregistered target must fail loudly — silence would score as a pass."""
+    events: list[dict[str, Any]] = []
+
+    orch = Orchestrator(on_event=lambda ev: events.append(ev))
+    state = WorkflowState(user_request="x")
+    task = Task(title="validate the thing", description="d")
+    state.add_task(task)
+
+    response = await orch.delegate(task, AgentName.LOCK, state)
+
+    assert response.success is False
+    assert "not registered" in (response.error or "")
+
+    types = [e["type"] for e in events]
+    assert types == ["agent.start", "agent.fail"]
+    assert events[1]["agent"] == "lock"
+
+    # The task must carry the failure too, not sit at PENDING forever.
+    assert task.status == TaskStatus.FAILED
+    assert task.error is not None

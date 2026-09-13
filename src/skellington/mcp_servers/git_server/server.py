@@ -15,7 +15,6 @@ Tools exposed:
 from __future__ import annotations
 
 import asyncio
-import json
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server

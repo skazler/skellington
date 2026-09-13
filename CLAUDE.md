@@ -33,7 +33,7 @@ Multi-agent orchestrator. **Jack** plans + routes; specialist agents (**Sally**/
 
 ## Testing
 
-- `pytest -q` — full suite (~124 tests, all should pass)
+- `pytest -q` — full suite (158 tests, all should pass)
 - `pytest tests/test_agents/` — one layer
 - `pytest -k mayor` — one agent
 - Mock LLMs via `tests/conftest.py::make_mock_llm` — returns a MagicMock with `provider` and an `AsyncMock` `complete`.

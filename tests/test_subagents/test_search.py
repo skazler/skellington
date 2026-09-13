@@ -6,9 +6,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tests.conftest import make_mock_llm
 
 from skellington.subagents.search import SearchResult, SearchSubagent
-from tests.conftest import make_mock_llm
 
 
 def _toolkit(results):

@@ -20,6 +20,14 @@ from __future__ import annotations
 
 import re
 
+from skellington.agents.oogie.skills import (
+    ANALYZE_TRENDS_SCHEMA,
+    SUMMARIZE_FINDINGS_SCHEMA,
+    WEB_SEARCH_SCHEMA,
+    analyze_trends,
+    summarize_findings,
+    web_search,
+)
 from skellington.core.agent import BaseAgent
 from skellington.core.llm import LLMClient
 from skellington.core.types import (
@@ -32,18 +40,9 @@ from skellington.core.types import (
     WorkflowState,
 )
 from skellington.mcp_servers.websearch import tools as _default_search
-from skellington.subagents.compare import Comparison, CompareSubagent
+from skellington.subagents.compare import CompareSubagent, Comparison
 from skellington.subagents.search import SearchResult, SearchSubagent
 from skellington.subagents.summary import Summary, SummarySubagent
-
-from skellington.agents.oogie.skills import (
-    ANALYZE_TRENDS_SCHEMA,
-    SUMMARIZE_FINDINGS_SCHEMA,
-    WEB_SEARCH_SCHEMA,
-    analyze_trends,
-    summarize_findings,
-    web_search,
-)
 
 _COMPARE_KEYWORDS = (
     "compare",

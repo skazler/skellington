@@ -1,0 +1,46 @@
+{
+  "name": "routing",
+  "description": "Does Jack route each step to a sensible specialist? Assertions are order-free: the planner is not reproducible, so exact trajectories fail on variance rather than on regressions.",
+  "cases": [
+    {
+      "id": "research-build-review-report",
+      "request": "Research the top Python async frameworks, write a small demo, check the demo is correct, and summarize the results.",
+      "notes": "The four-specialist path. Exercises the validator route, which silently dropped its step before the delegate() fix.",
+      "expect": {
+        "agents_include": [
+          "oogie",
+          "sally"
+        ],
+        "succeeded": true,
+        "max_llm_calls": 30
+      }
+    },
+    {
+      "id": "research-only",
+      "request": "Research what MCP is and summarize what you find.",
+      "notes": "Research request must reach the researcher; the rest of the plan varies.",
+      "expect": {
+        "agents_include": [
+          "oogie"
+        ],
+        "excludes": [
+          "Traceback"
+        ],
+        "succeeded": true,
+        "max_llm_calls": 20
+      }
+    },
+    {
+      "id": "build-only",
+      "request": "Write code for a Python function that reverses a string.",
+      "notes": "Two real runs of this request produced 'sally,sally,sally,lock,mayor' and 'oogie,lock,sally,shock,lock,mayor'. The only stable claim is that the builder is involved.",
+      "expect": {
+        "agents_include": [
+          "sally"
+        ],
+        "succeeded": true,
+        "max_llm_calls": 20
+      }
+    }
+  ]
+}

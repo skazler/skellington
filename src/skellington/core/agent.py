@@ -190,6 +190,18 @@ class BaseAgent(abc.ABC):
             iterations += 1
             llm_response = await self._llm.complete(messages, config)
 
+            if llm_response.stop_reason == "max_tokens":
+                self.log.error("response truncated at max_tokens", iterations=iterations)
+                return AgentResponse(
+                    agent=self.name,
+                    content=llm_response.content,
+                    success=False,
+                    error=(
+                        f"response hit max_tokens ({config.max_tokens}) and stopped "
+                        "mid-output; the result is incomplete"
+                    ),
+                )
+
             if not llm_response.tool_calls:
                 # No more tool calls — we have our final answer
                 return AgentResponse(

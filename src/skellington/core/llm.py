@@ -36,6 +36,16 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
+class TruncatedResponseError(RuntimeError):
+    """A response hit max_tokens and stopped mid-output.
+
+    Worth its own type because the downstream symptom is misleading: 15 of
+    this repo's 18 subagents parse the response as JSON, so a truncated reply
+    surfaces as "No valid JSON object found" and sends you looking at the
+    parser instead of at the token cap.
+    """
+
+
 class LLMClient(abc.ABC):
     """
     Abstract base class for all LLM provider clients.

@@ -287,7 +287,14 @@ class LLMConfig(BaseModel):
 
     provider: LLMProvider = LLMProvider.ANTHROPIC
     model: str = "claude-opus-4-7"
-    max_tokens: int = 4096
+    max_tokens: int = 16000
+    """Ceiling on a single response.
+
+    4096 was too low for the work these subagents do — a codegen subagent
+    returns a whole source file inside a JSON string, and a formatter returns
+    a full markdown report. Both blew the cap, and the truncated text then
+    failed to parse as JSON with an error that never mentioned truncation.
+    """
     temperature: float = 0.7
     system_prompt: str | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)

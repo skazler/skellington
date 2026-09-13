@@ -45,6 +45,26 @@ class Expect(BaseModel):
     trajectory is not under test.
     """
 
+    agents_include: list[str] = Field(default_factory=list)
+    """Agents that must each appear somewhere in the trajectory, order-free.
+
+    Usually the right assertion for this system. Sampling parameters were
+    removed from current Anthropic models, so nothing pins the planner: the
+    same request decomposed into `sally, sally, sally, lock, mayor` on one run
+    and `oogie, lock, sally, shock, lock, mayor` on the next. An exact ordered
+    trajectory fails on variance rather than on regressions, which trains you
+    to ignore the suite.
+
+    Assert the part that is actually stable — that a build request reaches the
+    builder — and use `agents` only where the plan really is fixed.
+    """
+
+    min_trajectory_score: float | None = None
+    """Pass `agents` at partial credit instead of demanding an exact match.
+
+    Only meaningful alongside `agents`. 1.0 is the implicit default.
+    """
+
     contains: list[str] = Field(default_factory=list)
     """Substrings that must appear in final_output. Case-insensitive."""
 
@@ -79,6 +99,7 @@ class Expect(BaseModel):
         """True when the case asserts nothing — always a mistake, never a pass."""
         return (
             self.agents is None
+            and not self.agents_include
             and not self.contains
             and not self.excludes
             and self.succeeded is None

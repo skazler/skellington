@@ -231,10 +231,13 @@ class Orchestrator:
             task.result = response.content
             if not response.success:
                 task.error = response.error
+            # A failed response carries its reason in .error, and usually has
+            # empty .content — reporting content would say nothing at all.
+            detail = response.content if response.success else (response.error or "")
             await self.emit(
                 "agent.complete" if response.success else "agent.fail",
                 agent=to_agent,
-                message=(response.content or "")[:200],
+                message=(detail or "")[:200],
                 success=response.success,
             )
             return response

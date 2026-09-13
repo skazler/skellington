@@ -274,3 +274,68 @@ def test_clean_runs_report_the_check_as_passing():
     result = score(case, _state(), _clean_stream("sally"))
 
     assert next(c for c in result.checks if c.name == "no_step_failures").passed
+
+
+def test_failure_reasons_carry_the_why_not_just_the_who():
+    events = [
+        _ev("workflow.start"),
+        _ev("agent.start", "mayor"),
+        {
+            "type": "agent.fail",
+            "agent": "mayor",
+            "message": "No valid JSON object found in LLM response",
+            "data": {},
+        },
+        _ev("workflow.complete"),
+    ]
+    case = EvalCase(id="c", request="r", expect=Expect(succeeded=True))
+
+    result = score(case, _state(), events)
+    detail = next(c for c in result.checks if c.name == "no_step_failures").detail
+
+    assert "mayor" in detail
+    assert "No valid JSON" in detail, "the reason is the actionable half"
+
+
+# ---------------------------------------------------------------------------
+# Non-deterministic planning
+# ---------------------------------------------------------------------------
+
+
+def test_agents_include_is_order_free():
+    case = EvalCase(id="c", request="r", expect=Expect(agents_include=["sally"]))
+
+    for stream in (
+        _clean_stream("sally", "lock", "mayor"),
+        _clean_stream("oogie", "lock", "sally", "shock", "mayor"),
+    ):
+        assert score(case, _state(), stream).passed, "both are real observed plans"
+
+
+def test_agents_include_fails_when_the_agent_never_ran():
+    case = EvalCase(id="c", request="r", expect=Expect(agents_include=["sally"]))
+
+    result = score(case, _state(), _clean_stream("oogie", "mayor"))
+
+    assert not result.passed
+    check = next(c for c in result.checks if c.name == "includes:sally")
+    assert "never ran" in check.detail
+
+
+def test_min_trajectory_score_accepts_partial_credit():
+    case = EvalCase(
+        id="c",
+        request="r",
+        expect=Expect(agents=["oogie", "sally"], min_trajectory_score=0.5),
+    )
+
+    result = score(case, _state(), _clean_stream("oogie", "mayor"))
+
+    assert result.trajectory_score == 0.5
+    assert result.passed
+
+
+def test_exact_trajectory_is_still_the_default():
+    case = EvalCase(id="c", request="r", expect=Expect(agents=["oogie", "sally"]))
+
+    assert not score(case, _state(), _clean_stream("oogie", "mayor")).passed

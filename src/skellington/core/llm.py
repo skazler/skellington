@@ -85,7 +85,15 @@ class AnthropicClient(LLMClient):
         settings = get_settings()
         if not settings.anthropic_api_key:
             raise ValueError("ANTHROPIC_API_KEY is not set")
-        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        headers = (
+            {"anthropic-workspace-id": settings.anthropic_workspace_id}
+            if settings.anthropic_workspace_id
+            else None
+        )
+        self._client = anthropic.AsyncAnthropic(
+            api_key=settings.anthropic_api_key,
+            default_headers=headers,
+        )
 
     async def complete(self, messages: list[Message], config: LLMConfig) -> LLMResponse:
         log = logger.bind(provider="anthropic", model=config.model)

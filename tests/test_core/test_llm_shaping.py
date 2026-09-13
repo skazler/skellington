@@ -364,3 +364,87 @@ async def test_fixed_sampling_client_is_a_passthrough_when_nothing_is_pinned():
 
     assert cfg.temperature == 0.42
     assert cfg.effort == "high"
+
+
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
+
+
+def test_register_tool_wraps_a_bare_json_schema_into_a_tool_definition():
+    """Skills export an argument schema, not a whole tool definition.
+
+    Appended raw, its top-level "type": "object" is read by the API as the
+    tool's discriminator: 'Input tag object ... does not match any of the
+    expected tags'. Every agent with tools failed on its first real call.
+    """
+    from skellington.core.agent import BaseAgent
+    from skellington.core.types import AgentName
+
+    class _Agent(BaseAgent):
+        name = AgentName.SALLY
+
+        @property
+        def system_prompt(self) -> str:
+            return "x"
+
+        async def run(self, task, state):  # pragma: no cover - not exercised
+            raise NotImplementedError
+
+    async def do_thing(value: str) -> str:
+        """Do the thing.
+
+        Longer explanation that should not reach the description.
+        """
+        return value
+
+    agent = _Agent(llm_client=MagicMock(provider=LLMProvider.ANTHROPIC))
+    agent.register_tool(
+        name="do_thing",
+        func=do_thing,
+        schema={"type": "object", "properties": {"value": {"type": "string"}}},
+    )
+
+    definition = agent._tool_schemas[0]
+    assert set(definition) == {"name", "description", "input_schema"}
+    assert definition["name"] == "do_thing"
+    assert definition["description"] == "Do the thing."
+    assert definition["input_schema"]["type"] == "object"
+
+
+def test_register_tool_passes_through_a_complete_definition():
+    from skellington.core.agent import BaseAgent
+    from skellington.core.types import AgentName
+
+    class _Agent(BaseAgent):
+        name = AgentName.SALLY
+
+        @property
+        def system_prompt(self) -> str:
+            return "x"
+
+        async def run(self, task, state):  # pragma: no cover - not exercised
+            raise NotImplementedError
+
+    async def noop() -> None: ...
+
+    complete = {"name": "given", "description": "d", "input_schema": {"type": "object"}}
+    agent = _Agent(llm_client=MagicMock(provider=LLMProvider.ANTHROPIC))
+    agent.register_tool(name="given", func=noop, schema=complete)
+
+    assert agent._tool_schemas[0] is complete
+
+
+def test_every_registered_tool_in_the_repo_is_a_valid_definition(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    from skellington.core import config as config_module
+
+    config_module.get_settings.cache_clear()
+    from skellington.agents import default_agents
+
+    for agent in default_agents():
+        for definition in agent._tool_schemas:
+            assert set(definition) >= {"name", "description", "input_schema"}, (
+                f"{agent.name.value} registered a malformed tool: {definition}"
+            )
+            assert definition["input_schema"].get("type") == "object"

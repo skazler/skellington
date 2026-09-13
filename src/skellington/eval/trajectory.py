@@ -48,6 +48,19 @@ def failed_agents(events: list[Event]) -> list[str]:
     return [e["agent"] for e in events if e["type"] == "agent.fail" and e.get("agent")]
 
 
+def failure_reasons(events: list[Event]) -> list[str]:
+    """"agent: why" for each failed step.
+
+    Which agent failed is rarely enough to act on — a report that says only
+    "mayor failed" sends you back for another full run to find out why.
+    """
+    return [
+        f"{e['agent']}: {e.get('message') or 'no reason reported'}"
+        for e in events
+        if e["type"] == "agent.fail" and e.get("agent")
+    ]
+
+
 def lifecycle_violations(events: list[Event]) -> list[str]:
     """Structural problems in the stream itself, independent of any case.
 
@@ -146,12 +159,25 @@ def score(
     expected = case.expect.agents
     if expected is not None:
         value = trajectory_score(expected, trajectory)
+        threshold = case.expect.min_trajectory_score or 1.0
         checks.append(
             Check(
                 name="trajectory",
-                passed=value == 1.0,
+                passed=value >= threshold,
                 score=value,
-                detail=f"expected {expected}, got {trajectory}",
+                detail=f"expected {expected}, got {trajectory} (need {threshold:g})",
+            )
+        )
+
+    for agent in case.expect.agents_include:
+        checks.append(
+            Check(
+                name=f"includes:{agent}",
+                passed=agent in trajectory,
+                detail=(
+                    f"{agent} {'ran' if agent in trajectory else 'never ran'}; "
+                    f"trajectory was {trajectory}"
+                ),
             )
         )
 
@@ -197,7 +223,7 @@ def score(
                 name="no_step_failures",
                 passed=not failed,
                 detail=(
-                    f"{len(failed)} step(s) failed: {failed}" if failed else "no steps failed"
+                    "; ".join(failure_reasons(events)) if failed else "no steps failed"
                 ),
             )
         )

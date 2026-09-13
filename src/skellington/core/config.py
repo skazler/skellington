@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # LLM Providers
     # ------------------------------------------------------------------
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    anthropic_workspace_id: str | None = Field(
+        default=None, alias="ANTHROPIC_WORKSPACE_ID"
+    )
+    """Required when the API key is org-scoped rather than workspace-scoped.
+
+    Such a key is rejected with a 400 telling you to send the
+    anthropic-workspace-id header. A workspace-scoped key needs nothing.
+    """
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     google_api_key: str | None = Field(default=None, alias="GOOGLE_API_KEY")
 

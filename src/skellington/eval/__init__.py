@@ -3,6 +3,7 @@
 from skellington.eval.runner import build_runtime, run_case, run_set
 from skellington.eval.trajectory import (
     agent_trajectory,
+    failure_reasons,
     lifecycle_violations,
     routed_agents,
     score,
@@ -25,6 +26,7 @@ __all__ = [
     "EvalSet",
     "Expect",
     "agent_trajectory",
+    "failure_reasons",
     "build_runtime",
     "lifecycle_violations",
     "routed_agents",
